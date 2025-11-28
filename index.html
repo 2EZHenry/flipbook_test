@@ -5,17 +5,24 @@
 		<title>LAPP Catalogue Viewer</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+		<!-- jQuery (required for turn.js) -->
+		<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+		<!-- turn.js -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+
 		<!-- PDF.js -->
-		<!-- FontAwesome -->
-		<link
-			rel="stylesheet"
-			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-		/>
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 		<script>
 			pdfjsLib.GlobalWorkerOptions.workerSrc =
 				"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 		</script>
+
+		<!-- FontAwesome -->
+		<link
+			rel="stylesheet"
+			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+		/>
 
 		<style>
 			* {
@@ -47,7 +54,6 @@
 				align-items: center;
 				padding: 12px 12px;
 				color: white;
-				/* background: #fff; */
 				background: #ff7100;
 				box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 				font-size: 16px;
@@ -105,49 +111,49 @@
 			.viewer-container {
 				width: 100%;
 				height: 100%;
-				overflow: auto; /* pan when zoomed */
+				overflow: hidden; /* Hide scrollbars by default (when not zoomed) */
 				touch-action: pan-x pan-y;
 				cursor: default;
 				position: relative;
+				display: flex;
+				justify-content: center;
+				align-items: center;
 			}
 			.viewer-container.zoomed {
 				cursor: grab;
+				display: block; /* Allow scrolling when zoomed */
 			}
 			.viewer-container.dragging {
 				cursor: grabbing;
 			}
 
-			.viewer-inner {
-				position: relative;
-				margin: 0 auto;
-				width: fit-content;
-				min-height: 100%;
-				display: flex;
-				align-items: center;
-			}
-
-			/* zoomWrapper: just a container now */
+			/* Zoom Wrapper: scales the flipbook */
 			#zoomWrapper {
-				display: inline-block;
+				transform-origin: 0 0;
+				transition: transform 0.1s ease-out;
+				padding: 0;
+				overflow: visible; /* Allow 3D transforms to extend slightly without clipping immediately */
 			}
 
-			.spread-wrapper {
-				display: flex;
-				justify-content: center;
-				align-items: stretch;
-				gap: 16px;
+			/* Flipbook styles */
+			#flipbook {
+				width: 1000px;
+				height: 600px;
+				margin: 0 auto;
+				opacity: 0;
+				visibility: hidden;
+				transition: opacity 0.5s ease-in;
 			}
 
-			canvas {
-				display: block;
+			#flipbook .page {
 				background: #fff;
-				border-radius: 4px;
-				box-shadow: 0 0 16px rgba(0, 0, 0, 0.15);
+				box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 			}
 
-			#pdfCanvasLeft,
-			#pdfCanvasRight {
-				height: auto;
+			#flipbook canvas {
+				width: 100%;
+				height: 100%;
+				display: block;
 			}
 
 			/* Left / right nav buttons (fixed position) */
@@ -166,7 +172,7 @@
 				display: flex;
 				align-items: center;
 				justify-content: center;
-				z-index: 10;
+				z-index: 10000;
 				transition: background 0.2s, transform 0.1s, opacity 0.2s;
 			}
 			.nav-btn:hover:not(:disabled) {
@@ -187,18 +193,34 @@
 				right: 16px;
 			}
 
+			/* Hide nav buttons while loading */
+			.viewer-wrapper.loading .nav-btn {
+				opacity: 0;
+				pointer-events: none;
+			}
+
 			.loader {
 				position: absolute;
 				top: 50%;
 				left: 50%;
 				transform: translate(-50%, -50%);
 				z-index: 20;
-				background: rgba(255, 255, 255, 0.8);
-				padding: 10px;
-				border-radius: 4px;
-				font-size: 13px;
-				text-align: center;
-				pointer-events: none; /* Let clicks pass through if needed */
+				pointer-events: none;
+				width: 50px;
+				height: 50px;
+				border: 5px solid #f3f3f3;
+				border-top: 5px solid #ff7100;
+				border-radius: 50%;
+				animation: spin 1s linear infinite;
+			}
+
+			@keyframes spin {
+				0% {
+					transform: translate(-50%, -50%) rotate(0deg);
+				}
+				100% {
+					transform: translate(-50%, -50%) rotate(360deg);
+				}
 			}
 
 			@media (max-width: 900px) {
@@ -222,6 +244,15 @@
 				}
 				.viewer-container {
 					padding-bottom: 60px; /* Space for fixed bottom toolbar */
+				}
+				.viewer-container {
+					padding-bottom: 60px; /* Space for fixed bottom toolbar */
+				}
+				/* Loader is already centered, no need to move it for mobile */
+
+				#flipbook {
+					width: 90vw !important;
+					height: 60vh !important;
 				}
 			}
 		</style>
@@ -247,20 +278,14 @@
 		</div>
 
 		<!-- Main viewer -->
-		<div class="viewer-wrapper">
+		<div class="viewer-wrapper loading">
 			<button id="prevBtn" class="nav-btn nav-left">
 				<i class="fa-solid fa-chevron-left"></i>
 			</button>
 
 			<div class="viewer-container" id="viewerContainer">
-				<div class="viewer-inner">
-					<!-- We scale this whole wrapper on zoom -->
-					<div id="zoomWrapper">
-						<div class="spread-wrapper">
-							<canvas id="pdfCanvasLeft"></canvas>
-							<canvas id="pdfCanvasRight"></canvas>
-						</div>
-					</div>
+				<div id="zoomWrapper">
+					<div id="flipbook"></div>
 				</div>
 			</div>
 
@@ -269,7 +294,7 @@
 			</button>
 		</div>
 
-		<div class="loader" id="loader">Loading PDF…</div>
+		<div class="loader" id="loader"></div>
 
 		<!-- Flip sound -->
 		<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
@@ -280,358 +305,278 @@
 
 			const viewerContainer = document.getElementById("viewerContainer");
 			const zoomWrapper = document.getElementById("zoomWrapper");
-
-			const leftCanvas = document.getElementById("pdfCanvasLeft");
-			const rightCanvas = document.getElementById("pdfCanvasRight");
-			const leftCtx = leftCanvas.getContext("2d");
-			const rightCtx = rightCanvas.getContext("2d");
+			const flipbookEl = document.getElementById("flipbook");
 
 			const prevBtn = document.getElementById("prevBtn");
 			const nextBtn = document.getElementById("nextBtn");
 			const zoomInBtn = document.getElementById("zoomInBtn");
 			const zoomOutBtn = document.getElementById("zoomOutBtn");
+			const zoomResetBtn = document.getElementById("zoomResetBtn");
 			const zoomLabel = document.getElementById("zoomLabel");
 			const pageCurrent = document.getElementById("pageCurrent");
 			const pageTotal = document.getElementById("pageTotal");
 			const loader = document.getElementById("loader");
 			const flipSoundEl = document.getElementById("flipSound");
 
-			// Sharp rendering
-			leftCtx.imageSmoothingEnabled = false;
-			rightCtx.imageSmoothingEnabled = false;
-
 			let pdfDoc = null;
-			let currentPage = 1;
-			let isRendering = false;
+			let turnReady = false;
 
-			// Zoom state
 			// Zoom state
 			let zoomLevel = 1;
 			const ZOOM_LEVELS = [0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0];
 			const ZOOM_MIN = ZOOM_LEVELS[0];
 			const ZOOM_MAX = ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
 
-			// Store base dimensions (at zoom 1)
-			let currentBaseWidth = 0;
-			let currentBaseHeight = 0;
-
-			// High-res base render scale for PDF (independent of zoom)
-			const BASE_RENDER_SCALE = 2.4; // sharper for tall pages
-
-			// For flip sound only on page change
-			let lastRenderedKey = "";
-			let shouldPlayFlipSound = false;
+			// Interaction state
+			let isDragging = false;
+			let startX = 0;
+			let startY = 0;
+			let startScrollLeft = 0;
+			let startScrollTop = 0;
+			let initialPinchDistance = null;
+			let startZoomLevel = 1;
 
 			function isMobile() {
 				return window.innerWidth < 900;
-			}
-
-			function isSpreadMode() {
-				// Desktop = spread, mobile = single page
-				return window.innerWidth >= 900;
 			}
 
 			function setZoom(value) {
 				zoomLevel = Math.max(ZOOM_MIN, Math.min(value, ZOOM_MAX));
 				zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
 
-				// Apply zoom to canvas CSS size
-				if (currentBaseWidth > 0 && currentBaseHeight > 0) {
-					const newW = currentBaseWidth * zoomLevel;
-					const newH = currentBaseHeight * zoomLevel;
-
-					leftCanvas.style.width = newW + "px";
-					leftCanvas.style.height = newH + "px";
-					rightCanvas.style.width = newW + "px";
-					rightCanvas.style.height = newH + "px";
+				if (zoomLevel <= 1) {
+					// Center when zoomed out or at 100%
+					zoomWrapper.style.transformOrigin = "center center";
+					viewerContainer.classList.remove("zoomed");
+					viewerContainer.style.overflow = "hidden"; // Prevent scrollbars during flip
+				} else {
+					// Top-left when zoomed in to allow panning
+					zoomWrapper.style.transformOrigin = "0 0";
+					viewerContainer.classList.add("zoomed");
+					viewerContainer.style.overflow = "auto"; // Enable scrollbars for panning
 				}
 
-				if (zoomLevel > 1) {
-					viewerContainer.classList.add("zoomed");
+				// Apply zoom via CSS transform
+				zoomWrapper.style.transform = `scale(${zoomLevel})`;
+
+				if (zoomLevel <= 1) {
+					// Reset scroll when zooming out to 100%
+					viewerContainer.scrollLeft =
+						(viewerContainer.scrollWidth - viewerContainer.clientWidth) / 2;
+				}
+			}
+
+			function updatePageInfo() {
+				if (!turnReady) return;
+				const current = $("#flipbook").turn("page");
+				const total = $("#flipbook").turn("pages");
+				pageCurrent.textContent = current;
+				pageTotal.textContent = total;
+
+				prevBtn.disabled = current === 1;
+				nextBtn.disabled = current === total;
+			}
+
+			function updateLayout() {
+				if (!turnReady) return;
+
+				// Resize flipbook based on screen
+				const w = window.innerWidth;
+				const h = window.innerHeight;
+
+				if (isMobile()) {
+					const mobileW = w - 20;
+					const mobileH = h - 100; // minus toolbar + padding
+					$("#flipbook").turn("size", mobileW, mobileH);
 				} else {
+					// Desktop size: fit within screen with padding
+					// Increased padding to prevent scrollbars appearing during page flip animation
+					const paddingX = 150;
+					const paddingY = 120;
+					const availableW = w - paddingX;
+					const availableH = h - paddingY;
+
+					// Target aspect ratio (1000/600 = 1.666)
+					const targetRatio = 1000 / 600;
+
+					let newW = availableW;
+					let newH = newW / targetRatio;
+
+					if (newH > availableH) {
+						newH = availableH;
+						newW = newH * targetRatio;
+					}
+
+					$("#flipbook").turn("size", newW, newH);
+				}
+
+				// Center the zoom wrapper
+				if (zoomLevel === 1) {
 					viewerContainer.classList.remove("zoomed");
 				}
 			}
 
-			// Page height control
-			function getBasePageHeight() {
-				const vh = window.innerHeight;
-				if (isMobile()) {
-					// For mobile, fill screen minus toolbar (~50px)
-					return vh - 50;
-				} else {
-					// Desktop: aim for ~980px but don't exceed viewport too much
-					return Math.min(980, vh - 120);
-				}
-			}
+			function renderPage(pdf, pageNum) {
+				return pdf.getPage(pageNum).then((page) => {
+					const viewport = page.getViewport({ scale: 1.5 }); // Good quality scale
 
-			// Compute CSS and internal sizes
-			function computeSizes(page, isSinglePage) {
-				const viewport0 = page.getViewport({ scale: 1 });
-				const ratio = viewport0.height / viewport0.width; // H/W
+					const div = document.createElement("div");
+					div.className = "page";
 
-				// Calculate dimensions based on height first
-				const baseHeight = getBasePageHeight();
-				let cssHeight = baseHeight;
-				let cssWidth = cssHeight / ratio;
+					const canvas = document.createElement("canvas");
+					canvas.width = viewport.width;
+					canvas.height = viewport.height;
+					div.appendChild(canvas);
 
-				// For mobile, constrain by width to prevent overflow (Fit-to-Width)
-				if (isMobile()) {
-					const maxWidth = window.innerWidth - 20; // 20px padding
-					if (cssWidth > maxWidth) {
-						cssWidth = maxWidth;
-						cssHeight = cssWidth * ratio;
-					}
-				}
+					// Append to flipbook container (turn.js will organize them)
+					flipbookEl.appendChild(div);
 
-				// Store base sizes for zooming
-				currentBaseWidth = cssWidth;
-				currentBaseHeight = cssHeight;
-
-				const pixelRatio = window.devicePixelRatio || 1;
-				const internalWidth = cssWidth * pixelRatio * BASE_RENDER_SCALE;
-				const internalHeight = cssHeight * pixelRatio * BASE_RENDER_SCALE;
-
-				const scaleX = internalWidth / viewport0.width;
-				const scaleY = internalHeight / viewport0.height;
-				const scale = Math.max(scaleX, scaleY);
-
-				const viewport = page.getViewport({ scale });
-
-				return { cssWidth, cssHeight, viewport };
-			}
-
-			function setCanvasSize(canvas, viewport, cssWidth, cssHeight, ctx) {
-				canvas.width = viewport.width;
-				canvas.height = viewport.height;
-				// Apply current zoom level to CSS size
-				canvas.style.width = cssWidth * zoomLevel + "px";
-				canvas.style.height = cssHeight * zoomLevel + "px";
-				if (ctx) ctx.imageSmoothingEnabled = false;
-			}
-
-			function renderSingle(pageNum) {
-				rightCanvas.style.display = "none";
-
-				return pdfDoc.getPage(pageNum).then((page) => {
-					const { cssWidth, cssHeight, viewport } = computeSizes(page, true);
-
-					setCanvasSize(leftCanvas, viewport, cssWidth, cssHeight, leftCtx);
-
-					const renderContext = { canvasContext: leftCtx, viewport };
-					return page.render(renderContext).promise.then(() => {
-						const key = String(pageNum);
-						if (shouldPlayFlipSound && key !== lastRenderedKey) {
-							flipSoundEl && flipSoundEl.play().catch(() => {});
-						}
-						lastRenderedKey = key;
-
-						pageCurrent.textContent = pageNum;
-						pageTotal.textContent = pdfDoc.numPages;
-					});
+					return page.render({
+						canvasContext: canvas.getContext("2d"),
+						viewport: viewport,
+					}).promise;
 				});
 			}
 
-			function renderSpread(leftPageNum) {
-				rightCanvas.style.display = "block";
-
-				const leftPromise = pdfDoc.getPage(leftPageNum).then((page) => {
-					const { cssWidth, cssHeight, viewport } = computeSizes(page, false);
-					setCanvasSize(leftCanvas, viewport, cssWidth, cssHeight, leftCtx);
-					const renderContext = { canvasContext: leftCtx, viewport };
-					return page.render(renderContext).promise;
-				});
-
-				const rightPageNum = leftPageNum + 1;
-				let rightPromise;
-				if (rightPageNum <= pdfDoc.numPages) {
-					rightPromise = pdfDoc.getPage(rightPageNum).then((page) => {
-						const { cssWidth, cssHeight, viewport } = computeSizes(page, false);
-						setCanvasSize(rightCanvas, viewport, cssWidth, cssHeight, rightCtx);
-						const renderContext = { canvasContext: rightCtx, viewport };
-						return page.render(renderContext).promise;
-					});
-				} else {
-					rightCanvas.style.display = "none";
-					rightPromise = Promise.resolve();
-				}
-
-				return Promise.all([leftPromise, rightPromise]).then(() => {
-					let key;
-					if (rightPageNum <= pdfDoc.numPages) {
-						key = leftPageNum + "-" + rightPageNum;
-						pageCurrent.textContent = leftPageNum; // show left page index
-					} else {
-						key = String(leftPageNum);
-						pageCurrent.textContent = leftPageNum;
-					}
+			// Load PDF
+			pdfjsLib
+				.getDocument(pdfUrl)
+				.promise.then((pdf) => {
+					pdfDoc = pdf;
 					pageTotal.textContent = pdfDoc.numPages;
 
-					if (shouldPlayFlipSound && key !== lastRenderedKey) {
-						flipSoundEl && flipSoundEl.play().catch(() => {});
+					const tasks = [];
+					for (let i = 1; i <= pdf.numPages; i++) {
+						tasks.push(renderPage(pdf, i));
 					}
-					lastRenderedKey = key;
-				});
-			}
-
-			function renderCurrent() {
-				if (!pdfDoc) return;
-
-				isRendering = true;
-				loader.style.display = "block";
-				loader.textContent = "Rendering…";
-
-				const useSpread =
-					isSpreadMode() && currentPage > 1 && pdfDoc.numPages > 1;
-
-				const renderPromise = useSpread
-					? renderSpread(currentPage)
-					: renderSingle(currentPage);
-
-				renderPromise.then(() => {
-					isRendering = false;
+					return Promise.all(tasks);
+				})
+				.then(() => {
 					loader.style.display = "none";
 
-					prevBtn.disabled = currentPage <= 1;
+					// Initialize turn.js
+					$("#flipbook").turn({
+						autoCenter: false, // Disable autoCenter to prevent conflict with our CSS centering
+						elevation: 0, // Reduce elevation to prevent "flyover" effect
+						gradients: true,
+						acceleration: true,
+						duration: 1000, // 1s flip duration
+						display: isMobile() ? "single" : "double",
+					});
 
-					if (isSpreadMode()) {
-						const maxLeft =
-							pdfDoc.numPages % 2 === 0 ? pdfDoc.numPages - 1 : pdfDoc.numPages;
-						nextBtn.disabled = currentPage >= maxLeft;
-					} else {
-						nextBtn.disabled = currentPage >= pdfDoc.numPages;
-					}
+					turnReady = true;
+					updatePageInfo();
+					updateLayout();
+
+					// Reveal flipbook
+					flipbookEl.style.visibility = "visible";
+					flipbookEl.style.opacity = "1";
+					document.querySelector(".viewer-wrapper").classList.remove("loading");
+
+					// Bind events
+					$("#flipbook").bind("turning", (e, page, view) => {
+						flipSoundEl.currentTime = 0;
+						flipSoundEl.play().catch(() => {});
+					});
+
+					$("#flipbook").bind("turned", (e, page, view) => {
+						updatePageInfo();
+					});
+
+					// Initial resize check
+					window.addEventListener("resize", () => {
+						updateLayout();
+					});
+				})
+				.catch((err) => {
+					console.error(err);
+					loader.textContent = "Error: " + err.message;
 				});
-			}
 
-			function queueRenderCurrent() {
-				if (isRendering) {
-					setTimeout(queueRenderCurrent, 50);
-				} else {
-					renderCurrent();
-				}
-			}
-
-			// Navigation buttons
+			// Navigation
 			prevBtn.addEventListener("click", () => {
-				if (!pdfDoc || currentPage <= 1) return;
-
-				if (isSpreadMode()) {
-					if (currentPage <= 2) {
-						currentPage = 1;
-					} else {
-						currentPage = currentPage - 2;
-					}
-				} else {
-					currentPage = currentPage - 1;
-				}
-
-				shouldPlayFlipSound = true;
-				queueRenderCurrent();
+				if (turnReady) $("#flipbook").turn("previous");
 			});
 
 			nextBtn.addEventListener("click", () => {
-				if (!pdfDoc) return;
-
-				if (isSpreadMode()) {
-					if (currentPage === 1) {
-						if (pdfDoc.numPages >= 2) currentPage = 2;
-					} else {
-						const maxLeft =
-							pdfDoc.numPages % 2 === 0 ? pdfDoc.numPages - 1 : pdfDoc.numPages;
-						if (currentPage < maxLeft)
-							currentPage = Math.min(currentPage + 2, maxLeft);
-					}
-				} else {
-					if (currentPage < pdfDoc.numPages) currentPage = currentPage + 1;
-				}
-
-				shouldPlayFlipSound = true;
-				queueRenderCurrent();
+				if (turnReady) $("#flipbook").turn("next");
 			});
 
-			// Zoom buttons (desktop + mobile)
+			// Keyboard Navigation
+			window.addEventListener("keydown", (e) => {
+				if (!turnReady) return;
+				if (e.key === "ArrowLeft") {
+					$("#flipbook").turn("previous");
+				} else if (e.key === "ArrowRight") {
+					$("#flipbook").turn("next");
+				}
+			});
+
+			// Zoom Controls
 			zoomInBtn.addEventListener("click", () => {
 				const nextLevel = ZOOM_LEVELS.find(
 					(level) => level > zoomLevel + 0.001
 				);
-				if (nextLevel) {
-					setZoom(nextLevel);
-				} else {
-					setZoom(ZOOM_MAX);
-				}
+				if (nextLevel) setZoom(nextLevel);
+				else setZoom(ZOOM_MAX);
 			});
 
 			zoomOutBtn.addEventListener("click", () => {
 				const prevLevel = [...ZOOM_LEVELS]
 					.reverse()
 					.find((level) => level < zoomLevel - 0.001);
-				if (prevLevel) {
-					setZoom(prevLevel);
-				} else {
-					setZoom(ZOOM_MIN);
-				}
+				if (prevLevel) setZoom(prevLevel);
+				else setZoom(ZOOM_MIN);
 			});
 
-			const zoomResetBtn = document.getElementById("zoomResetBtn");
 			zoomResetBtn.addEventListener("click", () => {
 				setZoom(1);
+				updateLayout(); // Re-center
 			});
 
-			// Re-render on resize / orientation change (so base height adjusts)
-			window.addEventListener("resize", () => {
-				if (!pdfDoc) return;
-				queueRenderCurrent();
-			});
+			// Mouse Wheel Zoom
+			viewerContainer.addEventListener(
+				"wheel",
+				(e) => {
+					if (e.ctrlKey || !isMobile()) {
+						// Allow on desktop always, or ctrl+wheel
+						e.preventDefault();
 
-			// ---- Interaction State (Mouse + Touch) ----
-			let isDragging = false;
-			let startX = 0;
-			let startY = 0;
-			let startScrollLeft = 0;
-			let startScrollTop = 0;
+						const rect = viewerContainer.getBoundingClientRect();
+						const mouseX = e.clientX - rect.left;
+						const mouseY = e.clientY - rect.top;
 
-			// Pinch state
-			let initialPinchDistance = null;
-			let startZoomLevel = 1;
+						// Determine direction
+						const delta = -Math.sign(e.deltaY);
+						const step = 0.1;
+						let newZoom = zoomLevel + delta * step;
+						newZoom = Math.max(ZOOM_MIN, Math.min(newZoom, ZOOM_MAX));
 
-			// ---- Drag-to-pan (mouse) ----
-			viewerContainer.addEventListener("mousedown", (e) => {
-				startX = e.clientX;
-				startY = e.clientY;
-				startScrollLeft = viewerContainer.scrollLeft;
-				startScrollTop = viewerContainer.scrollTop;
+						if (newZoom !== zoomLevel) {
+							const scale = newZoom / zoomLevel;
+							const oldScrollLeft = viewerContainer.scrollLeft;
+							const oldScrollTop = viewerContainer.scrollTop;
 
-				if (zoomLevel > 1) {
-					isDragging = true;
-					viewerContainer.classList.add("dragging");
-				}
-			});
+							// Calculate new scroll position to keep mouse point stable
+							// Point in content space: P = (Mouse + Scroll) / OldZoom
+							// New Scroll = P * NewZoom - Mouse
+							// New Scroll = (Mouse + Scroll) * (NewZoom/OldZoom) - Mouse
 
-			window.addEventListener("mousemove", (e) => {
-				if (!isDragging) return;
-				const dx = e.clientX - startX;
-				const dy = e.clientY - startY;
-				viewerContainer.scrollLeft = startScrollLeft - dx;
-				viewerContainer.scrollTop = startScrollTop - dy;
-			});
+							const newScrollLeft = (mouseX + oldScrollLeft) * scale - mouseX;
+							const newScrollTop = (mouseY + oldScrollTop) * scale - mouseY;
 
-			window.addEventListener("mouseup", (e) => {
-				if (isDragging) {
-					isDragging = false;
-					viewerContainer.classList.remove("dragging");
-				} else if (zoomLevel <= 1) {
-					// Check for swipe
-					const dx = e.clientX - startX;
-					const dy = e.clientY - startY;
-					if (Math.abs(dx) > 50 && Math.abs(dy) < 50) {
-						if (dx > 0) prevBtn.click();
-						else nextBtn.click();
+							setZoom(newZoom);
+
+							viewerContainer.scrollLeft = newScrollLeft;
+							viewerContainer.scrollTop = newScrollTop;
+						}
 					}
-				}
-			});
+				},
+				{ passive: false }
+			);
 
-			// ---- Touch Handling (Drag + Pinch Zoom) ----
+			// ---- Touch / Mouse Handling for Panning & Swiping ----
+
 			function getPinchDistance(touches) {
 				const dx = touches[0].clientX - touches[1].clientX;
 				const dy = touches[0].clientY - touches[1].clientY;
@@ -644,70 +589,83 @@
 				return { x, y };
 			}
 
+			// Mouse Down
+			let isMouseDownOnViewer = false;
+			viewerContainer.addEventListener("mousedown", (e) => {
+				isMouseDownOnViewer = true;
+				startX = e.clientX;
+				startY = e.clientY;
+				startScrollLeft = viewerContainer.scrollLeft;
+				startScrollTop = viewerContainer.scrollTop;
+
+				if (zoomLevel > 1) {
+					isDragging = true;
+					viewerContainer.classList.add("dragging");
+				}
+			});
+
+			// Mouse Move
+			window.addEventListener("mousemove", (e) => {
+				if (!isDragging) return;
+				const dx = e.clientX - startX;
+				const dy = e.clientY - startY;
+				viewerContainer.scrollLeft = startScrollLeft - dx;
+				viewerContainer.scrollTop = startScrollTop - dy;
+			});
+
+			// Mouse Up
+			window.addEventListener("mouseup", (e) => {
+				if (isDragging) {
+					isDragging = false;
+					viewerContainer.classList.remove("dragging");
+				} else if (zoomLevel <= 1 && isMouseDownOnViewer) {
+					// Swipe detection for page turn (if not dragging)
+					const dx = e.clientX - startX;
+					if (Math.abs(dx) > 50) {
+						if (dx > 0) $("#flipbook").turn("previous");
+						else $("#flipbook").turn("next");
+					}
+				}
+				isMouseDownOnViewer = false;
+			});
+
+			// Touch Start
 			viewerContainer.addEventListener("touchstart", (e) => {
 				if (e.touches.length === 2) {
-					// Start pinch
+					// Pinch start
 					isDragging = false;
 					initialPinchDistance = getPinchDistance(e.touches);
 					startZoomLevel = zoomLevel;
 				} else if (e.touches.length === 1) {
-					// Always capture start coordinates for swipe detection
 					const t = e.touches[0];
 					startX = t.clientX;
 					startY = t.clientY;
 					startScrollLeft = viewerContainer.scrollLeft;
 					startScrollTop = viewerContainer.scrollTop;
 
-					// Start drag (only if zoomed in or content overflows)
-					// We allow drag always if zoomed > 1 for "free drag" feel
-					if (
-						zoomLevel > 1 ||
-						viewerContainer.scrollWidth > viewerContainer.clientWidth ||
-						viewerContainer.scrollHeight > viewerContainer.clientHeight
-					) {
+					if (zoomLevel > 1) {
 						isDragging = true;
 						viewerContainer.classList.add("dragging");
 					}
 				}
 			});
 
+			// Touch Move
 			viewerContainer.addEventListener(
 				"touchmove",
 				(e) => {
-					if (e.touches.length === 2 && initialPinchDistance !== null) {
-						// Handle pinch
-						e.preventDefault(); // prevent browser zoom
-
+					if (e.touches.length === 2 && initialPinchDistance) {
+						// Pinch Zoom
+						e.preventDefault();
 						const currentDistance = getPinchDistance(e.touches);
 						const scale = currentDistance / initialPinchDistance;
 						const newZoomRaw = startZoomLevel * scale;
 
-						// Calculate pinch center relative to viewport
-						const center = getPinchCenter(e.touches);
-						const rect = viewerContainer.getBoundingClientRect();
-						const centerX = center.x - rect.left;
-						const centerY = center.y - rect.top;
-
-						// Store old zoom to calculate relative scale change
-						const oldZoom = zoomLevel;
-
-						// Apply new zoom
+						// Simple zoom set for now (centering logic is complex with CSS transform)
 						setZoom(newZoomRaw);
-
-						// Adjust scroll to keep pinch center stable
-						// Formula: Scroll' = Scroll * scale + Center * (scale - 1)
-						// where scale is relative change (newZoom / oldZoom)
-						if (oldZoom > 0) {
-							const relativeScale = zoomLevel / oldZoom;
-							viewerContainer.scrollLeft =
-								(viewerContainer.scrollLeft + centerX) * relativeScale -
-								centerX;
-							viewerContainer.scrollTop =
-								(viewerContainer.scrollTop + centerY) * relativeScale - centerY;
-						}
 					} else if (e.touches.length === 1 && isDragging) {
-						// Handle drag
-						e.preventDefault(); // prevent native scroll chaining / pull-to-refresh
+						// Pan
+						e.preventDefault();
 						const t = e.touches[0];
 						const dx = t.clientX - startX;
 						const dy = t.clientY - startY;
@@ -718,43 +676,25 @@
 				{ passive: false }
 			);
 
+			// Touch End
 			viewerContainer.addEventListener("touchend", (e) => {
-				// If fingers lifted, reset states
-				if (e.touches.length < 2) {
-					initialPinchDistance = null;
-				}
+				if (e.touches.length < 2) initialPinchDistance = null;
+
 				if (e.touches.length === 0) {
 					if (isDragging) {
 						isDragging = false;
 						viewerContainer.classList.remove("dragging");
 					} else if (zoomLevel <= 1) {
-						// Check for swipe
+						// Swipe detection
 						const t = e.changedTouches[0];
 						const dx = t.clientX - startX;
-						const dy = t.clientY - startY;
-						if (Math.abs(dx) > 50 && Math.abs(dy) < 50) {
-							if (dx > 0) prevBtn.click();
-							else nextBtn.click();
+						if (Math.abs(dx) > 50) {
+							if (dx > 0) $("#flipbook").turn("previous");
+							else $("#flipbook").turn("next");
 						}
 					}
 				}
 			});
-
-			// ---- Load PDF ----
-			loader.textContent = "Loading PDF…";
-
-			const task = pdfjsLib.getDocument(pdfUrl);
-			task.promise
-				.then((pdf) => {
-					pdfDoc = pdf;
-					pageTotal.textContent = pdfDoc.numPages;
-					setZoom(1);
-					renderCurrent();
-				})
-				.catch((err) => {
-					console.error(err);
-					loader.textContent = "Failed to load PDF: " + err.message;
-				});
 		</script>
 	</body>
 </html>

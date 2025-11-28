@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LAPP PDF Flipbook</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- turn.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #e5e5e5;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    #flipbook-container {
+      width: 100%;
+      max-width: 1200px;
+      height: 90vh;
+      max-height: 850px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    #toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fff;
+      padding: 6px 10px;
+      border-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      font-size: 14px;
+    }
+
+    #pageInfo { font-weight: 500; }
+
+    .toolbar-right {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .btn {
+      border: 1px solid #ccc;
+      background: #f7f7f7;
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+      min-width: 32px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .btn:hover { background: #e0e0e0; }
+
+    #flipbook-wrapper {
+      position: relative;
+      flex: 1;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    /* Scrollable area for zoomed content, scrollbars hidden */
+    #scrollContainer {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      position: relative;
+      -ms-overflow-style: none;   /* IE/Edge */
+      scrollbar-width: none;      /* Firefox */
+    }
+    #scrollContainer::-webkit-scrollbar {
+      display: none;              /* Chrome/Safari */
+    }
+
+    /* This is what we scale when zooming */
+    #zoomWrapper {
+      transform-origin: top left;
+      display: inline-block;
+      cursor: grab;
+    }
+    #zoomWrapper.panning {
+      cursor: grabbing;
+    }
+
+    #flipbook {
+      width: 1000px;
+      height: 650px;
+    }
+
+    #flipbook .page {
+      background: #fff;
+      overflow: hidden;
+    }
+
+    #flipbook canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 9999;
+    }
+
+    .nav-btn:hover { background: rgba(0,0,0,0.8); }
+
+    #prevPage { left: 8px; }
+    #nextPage { right: 8px; }
+
+    #loading {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-size: 12px;
+      border-radius: 4px;
+      z-index: 9999;
+    }
+
+    @media (max-width: 1100px) {
+      #flipbook {
+        width: 90vw;
+        height: 60vh;
+      }
+    }
+
+    @media (max-width: 768px) {
+      #flipbook-container {
+        height: 100vh;
+        max-height: none;
+      }
+      #flipbook {
+        width: 100vw;
+        height: 70vh;
+      }
+      .nav-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="flipbook-container">
+  <div id="toolbar">
+    <div id="pageInfo">
+      Page <span id="currentPage">1</span> / <span id="totalPages">0</span>
+    </div>
+
+    <div class="toolbar-right">
+      <div class="btn" id="zoomOutBtn">−</div>
+      <span id="zoomLabel">100%</span>
+      <div class="btn" id="zoomInBtn">+</div>
+    </div>
+  </div>
+
+  <div id="flipbook-wrapper">
+    <div id="loading">Loading PDF…</div>
+
+    <button class="nav-btn" id="prevPage">&#10094;</button>
+
+    <div id="scrollContainer">
+      <div id="zoomWrapper">
+        <div id="flipbook"></div>
+      </div>
+    </div>
+
+    <button class="nav-btn" id="nextPage">&#10095;</button>
+  </div>
+</div>
+
+<script>
+  const pdfUrl = "./Lapp25_Catalogue_full_1-30.pdf";
+
+  const pdfjsLib = window['pdfjsLib'];
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+  let turnReady = false;
+  let pdfTotalPages = 0;
+  let zoomLevel = 1;
+
+  const scrollContainer = document.getElementById("scrollContainer");
+  const zoomWrapper = document.getElementById("zoomWrapper");
+
+  // Drag-to-pan state
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+  let startScrollLeft = 0;
+  let startScrollTop = 0;
+
+  function setZoom(value) {
+    zoomLevel = Math.max(0.5, Math.min(value, 2)); // 50%–200%
+    zoomWrapper.style.transform = `scale(${zoomLevel})`;
+    document.getElementById("zoomLabel").textContent =
+      `${Math.round(zoomLevel * 100)}%`;
+  }
+
+  function updatePageInfo() {
+    if (!turnReady) return;
+    const current = $("#flipbook").turn("page");
+    const total   = $("#flipbook").turn("pages");
+    document.getElementById("currentPage").textContent = current;
+    document.getElementById("totalPages").textContent  = total;
+  }
+
+  function renderPage(pdf, pageNum) {
+    return pdf.getPage(pageNum).then(page => {
+      // LOWER SCALE FOR BETTER PERFORMANCE
+      const viewport = page.getViewport({ scale: 1.0 });
+
+      const div = document.createElement("div");
+      div.className = "page";
+
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      div.appendChild(canvas);
+
+      document.getElementById("flipbook").appendChild(div);
+
+      return page.render({
+        canvasContext: canvas.getContext("2d"),
+        viewport: viewport
+      }).promise;
+    });
+  }
+
+  // Flip sound – put page-flip.wav beside this HTML
+  const flipSound = new Audio("./page-flip.wav");
+  flipSound.volume = 0.4;
+
+  // Load entire PDF (all pages) once, in order
+  pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+    pdfTotalPages = pdf.numPages;
+    const tasks = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      tasks.push(renderPage(pdf, i));
+    }
+    return Promise.all(tasks);
+  }).then(() => {
+    // Make page count even for turn.js
+    if ($("#flipbook .page").length % 2 !== 0) {
+      $("#flipbook").append('<div class="page"></div>');
+    }
+
+    $("#flipbook").turn({
+      autoCenter: true,
+      elevation: 50,
+      gradients: true
+    });
+
+    turnReady = true;
+    document.getElementById("loading").style.display = "none";
+    updatePageInfo();
+    setZoom(1);
+
+    $("#flipbook").bind("turning", function () {
+      flipSound.currentTime = 0;
+      flipSound.play().catch(() => {});
+    });
+
+    $("#flipbook").bind("turned", updatePageInfo);
+  }).catch(err => {
+    console.error(err);
+    document.getElementById("loading").textContent =
+      "Error loading PDF. Check console.";
+  });
+
+  // Navigation
+  document.getElementById("prevPage").onclick = () => {
+    if (turnReady) $("#flipbook").turn("previous");
+  };
+
+  document.getElementById("nextPage").onclick = () => {
+    if (turnReady) $("#flipbook").turn("next");
+  };
+
+  // Zoom buttons
+  document.getElementById("zoomInBtn").onclick = () => {
+    setZoom(zoomLevel + 0.1);
+  };
+  document.getElementById("zoomOutBtn").onclick = () => {
+    setZoom(zoomLevel - 0.1);
+  };
+
+  // Drag-to-pan (mouse)
+  scrollContainer.addEventListener("mousedown", (e) => {
+    if (zoomLevel <= 1) return; // only when zoomed
+    isPanning = true;
+    zoomWrapper.classList.add("panning");
+    startX = e.clientX;
+    startY = e.clientY;
+    startScrollLeft = scrollContainer.scrollLeft;
+    startScrollTop = scrollContainer.scrollTop;
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isPanning) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    scrollContainer.scrollLeft = startScrollLeft - dx;
+    scrollContainer.scrollTop  = startScrollTop - dy;
+  });
+
+  window.addEventListener("mouseup", () => {
+    isPanning = false;
+    zoomWrapper.classList.remove("panning");
+  });
+
+  // Drag-to-pan (touch)
+  scrollContainer.addEventListener("touchstart", (e) => {
+    if (zoomLevel <= 1) return;
+    const t = e.touches[0];
+    isPanning = true;
+    zoomWrapper.classList.add("panning");
+    startX = t.clientX;
+    startY = t.clientY;
+    startScrollLeft = scrollContainer.scrollLeft;
+    startScrollTop = scrollContainer.scrollTop;
+  });
+
+  scrollContainer.addEventListener("touchmove", (e) => {
+    if (!isPanning) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    scrollContainer.scrollLeft = startScrollLeft - dx;
+    scrollContainer.scrollTop  = startScrollTop - dy;
+    e.preventDefault();
+  }, { passive: false });
+
+  scrollContainer.addEventListener("touchend", () => {
+    isPanning = false;
+    zoomWrapper.classList.remove("panning");
+  });
+</script>
+
+</body>
+</html>
