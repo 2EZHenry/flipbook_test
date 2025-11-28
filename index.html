@@ -3,7 +3,10 @@
 	<head>
 		<meta charset="UTF-8" />
 		<title>LAPP Catalogue Viewer</title>
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+		/>
 
 		<!-- jQuery (required for turn.js) -->
 		<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -230,6 +233,9 @@
 					left: 0;
 					width: 100%;
 					box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
+					padding-bottom: calc(
+						12px + env(safe-area-inset-bottom)
+					); /* Safe area for iPhone X+ */
 				}
 				.nav-left {
 					left: 10px;
@@ -323,7 +329,9 @@
 
 			// Zoom state
 			let zoomLevel = 1;
-			const ZOOM_LEVELS = [0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0];
+			const ZOOM_LEVELS = [
+				0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0,
+			];
 			const ZOOM_MIN = ZOOM_LEVELS[0];
 			const ZOOM_MAX = ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
 
@@ -386,7 +394,8 @@
 
 				if (isMobile()) {
 					const mobileW = w - 20;
-					const mobileH = h - 100; // minus toolbar + padding
+					// Subtract toolbar height (approx 60px) + safe area estimate (20px) + padding
+					const mobileH = h - 120;
 					$("#flipbook").turn("size", mobileW, mobileH);
 				} else {
 					// Desktop size: fit within screen with padding
@@ -659,10 +668,34 @@
 						e.preventDefault();
 						const currentDistance = getPinchDistance(e.touches);
 						const scale = currentDistance / initialPinchDistance;
-						const newZoomRaw = startZoomLevel * scale;
+						let newZoom = startZoomLevel * scale;
 
-						// Simple zoom set for now (centering logic is complex with CSS transform)
-						setZoom(newZoomRaw);
+						// Clamp newZoom
+						newZoom = Math.max(ZOOM_MIN, Math.min(newZoom, ZOOM_MAX));
+
+						if (newZoom !== zoomLevel) {
+							const center = getPinchCenter(e.touches);
+							const rect = viewerContainer.getBoundingClientRect();
+							const pinchX = center.x - rect.left;
+							const pinchY = center.y - rect.top;
+
+							// Calculate relative scale for this step
+							const relativeScale = newZoom / zoomLevel;
+
+							const oldScrollLeft = viewerContainer.scrollLeft;
+							const oldScrollTop = viewerContainer.scrollTop;
+
+							// Calculate new scroll position
+							const newScrollLeft =
+								(pinchX + oldScrollLeft) * relativeScale - pinchX;
+							const newScrollTop =
+								(pinchY + oldScrollTop) * relativeScale - pinchY;
+
+							setZoom(newZoom);
+
+							viewerContainer.scrollLeft = newScrollLeft;
+							viewerContainer.scrollTop = newScrollTop;
+						}
 					} else if (e.touches.length === 1 && isDragging) {
 						// Pan
 						e.preventDefault();
