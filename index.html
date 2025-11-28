@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>LAPP Catalogue Viewer</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+		<!-- PDF.js -->
+		<!-- FontAwesome -->
+		<link
+			rel="stylesheet"
+			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+		/>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+		<script>
+			pdfjsLib.GlobalWorkerOptions.workerSrc =
+				"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+		</script>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				padding: 0;
+				background: #ffffff;
+				color: #333;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+					Arial, sans-serif;
+				display: flex;
+				flex-direction: column;
+				min-height: 100vh;
+			}
+
+			/* Top bar: page info + zoom */
+			.top-toolbar {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 12px;
+				background: #fff;
+				box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+				font-size: 16px;
+				z-index: 5;
+			}
+
+			.page-info-text {
+				font-weight: 500;
+			}
+
+			.toolbar-right {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+			.toolbar-right i {
+				color: rgb(254 142 44);
+			}
+
+			.btn {
+				cursor: pointer;
+				border: 1px solid #ccc;
+				background: #f7f7f7;
+				border-radius: 20px;
+				padding: 4px 10px;
+				font-size: 13px;
+				min-width: 30px;
+				text-align: center;
+				user-select: none;
+				transition: background 0.15s, transform 0.1s;
+			}
+			.btn:hover {
+				background: #e2e2e2;
+			}
+			.btn:active {
+				transform: scale(0.97);
+			}
+
+			.zoom-label {
+				min-width: 48px;
+				text-align: center;
+			}
+
+			/* Main viewer area */
+			.viewer-wrapper {
+				flex: 1;
+				position: relative;
+				overflow: hidden;
+				display: flex;
+				justify-content: center;
+				background: #ffffff;
+			}
+
+			.viewer-container {
+				width: 100%;
+				height: calc(100vh - 50px);
+				overflow: auto; /* pan when zoomed */
+				touch-action: pan-x pan-y;
+				cursor: default;
+				position: relative;
+			}
+			.viewer-container.zoomed {
+				cursor: grab;
+			}
+			.viewer-container.dragging {
+				cursor: grabbing;
+			}
+
+			.viewer-inner {
+				position: relative;
+				margin: 0 auto;
+				width: fit-content;
+				min-height: 100%;
+				display: flex;
+				align-items: center;
+			}
+
+			/* zoomWrapper: just a container now */
+			#zoomWrapper {
+				display: inline-block;
+			}
+
+			.spread-wrapper {
+				display: flex;
+				justify-content: center;
+				align-items: stretch;
+				gap: 16px;
+			}
+
+			canvas {
+				display: block;
+				background: #fff;
+				border-radius: 4px;
+				box-shadow: 0 0 16px rgba(0, 0, 0, 0.15);
+			}
+
+			#pdfCanvasLeft,
+			#pdfCanvasRight {
+				height: auto;
+			}
+
+			/* Left / right nav buttons (fixed position) */
+			.nav-btn {
+				position: fixed;
+				top: 50%;
+				transform: translateY(-50%);
+				width: 40px;
+				height: 40px;
+				border-radius: 50%;
+				border: none;
+				cursor: pointer;
+				background: rgba(0, 0, 0, 0.6);
+				color: #fff;
+				font-size: 20px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 10;
+				transition: background 0.2s, transform 0.1s, opacity 0.2s;
+			}
+			.nav-btn:hover:not(:disabled) {
+				background: rgba(0, 0, 0, 0.8);
+			}
+			.nav-btn:active:not(:disabled) {
+				transform: scale(0.96);
+			}
+			.nav-btn:disabled {
+				opacity: 0.3;
+				cursor: default;
+			}
+
+			.nav-left {
+				left: 16px;
+			}
+			.nav-right {
+				right: 16px;
+			}
+
+			.loader {
+				margin: 6px auto 10px;
+				text-align: center;
+				font-size: 13px;
+				opacity: 0.75;
+			}
+
+			@media (max-width: 900px) {
+				.top-toolbar {
+					position: fixed;
+					bottom: 0;
+					left: 0;
+					width: 100%;
+					box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
+				}
+				.nav-left {
+					left: 10px;
+				}
+				.nav-right {
+					right: 10px;
+				}
+				.nav-btn {
+					width: 34px;
+					height: 34px;
+					font-size: 18px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<!-- Top toolbar -->
+		<div class="top-toolbar">
+			<div class="page-info-text">
+				Page <span id="pageCurrent">1</span> / <span id="pageTotal">0</span>
+			</div>
+			<div class="toolbar-right">
+				<button id="zoomOutBtn" class="btn zoom-btn">
+					<i class="fa-solid fa-magnifying-glass-minus"></i>
+				</button>
+				<span id="zoomLabel" class="zoom-label">100%</span>
+				<button id="zoomInBtn" class="btn zoom-btn">
+					<i class="fa-solid fa-magnifying-glass-plus"></i>
+				</button>
+				<button id="zoomResetBtn" class="btn zoom-btn" title="Reset to 100%">
+					<i class="fa-solid fa-rotate-left"></i>
+				</button>
+			</div>
+		</div>
+
+		<!-- Main viewer -->
+		<div class="viewer-wrapper">
+			<button id="prevBtn" class="nav-btn nav-left">
+				<i class="fa-solid fa-chevron-left"></i>
+			</button>
+
+			<div class="viewer-container" id="viewerContainer">
+				<div class="viewer-inner">
+					<!-- We scale this whole wrapper on zoom -->
+					<div id="zoomWrapper">
+						<div class="spread-wrapper">
+							<canvas id="pdfCanvasLeft"></canvas>
+							<canvas id="pdfCanvasRight"></canvas>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<button id="nextBtn" class="nav-btn nav-right">
+				<i class="fa-solid fa-chevron-right"></i>
+			</button>
+		</div>
+
+		<div class="loader" id="loader">Loading PDF…</div>
+
+		<!-- Flip sound -->
+		<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
+
+		<script>
+			// Your PDF file
+			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
+
+			const viewerContainer = document.getElementById("viewerContainer");
+			const zoomWrapper = document.getElementById("zoomWrapper");
+
+			const leftCanvas = document.getElementById("pdfCanvasLeft");
+			const rightCanvas = document.getElementById("pdfCanvasRight");
+			const leftCtx = leftCanvas.getContext("2d");
+			const rightCtx = rightCanvas.getContext("2d");
+
+			const prevBtn = document.getElementById("prevBtn");
+			const nextBtn = document.getElementById("nextBtn");
+			const zoomInBtn = document.getElementById("zoomInBtn");
+			const zoomOutBtn = document.getElementById("zoomOutBtn");
+			const zoomLabel = document.getElementById("zoomLabel");
+			const pageCurrent = document.getElementById("pageCurrent");
+			const pageTotal = document.getElementById("pageTotal");
+			const loader = document.getElementById("loader");
+			const flipSoundEl = document.getElementById("flipSound");
+
+			// Sharp rendering
+			leftCtx.imageSmoothingEnabled = false;
+			rightCtx.imageSmoothingEnabled = false;
+
+			let pdfDoc = null;
+			let currentPage = 1;
+			let isRendering = false;
+
+			// Zoom state
+			let zoomLevel = 1;
+			const ZOOM_MIN = 0.7;
+			const ZOOM_MAX = 2.5;
+			const ZOOM_STEP = 0.2;
+
+			// Store base dimensions (at zoom 1)
+			let currentBaseWidth = 0;
+			let currentBaseHeight = 0;
+
+			// High-res base render scale for PDF (independent of zoom)
+			const BASE_RENDER_SCALE = 2.4; // sharper for tall pages
+
+			// For flip sound only on page change
+			let lastRenderedKey = "";
+			let shouldPlayFlipSound = false;
+
+			function isMobile() {
+				return window.innerWidth < 900;
+			}
+
+			function isSpreadMode() {
+				// Desktop = spread, mobile = single page
+				return window.innerWidth >= 900;
+			}
+
+			function setZoom(value) {
+				zoomLevel = Math.max(ZOOM_MIN, Math.min(value, ZOOM_MAX));
+				zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
+
+				// Apply zoom to canvas CSS size
+				if (currentBaseWidth > 0 && currentBaseHeight > 0) {
+					const newW = currentBaseWidth * zoomLevel;
+					const newH = currentBaseHeight * zoomLevel;
+
+					leftCanvas.style.width = newW + "px";
+					leftCanvas.style.height = newH + "px";
+					rightCanvas.style.width = newW + "px";
+					rightCanvas.style.height = newH + "px";
+				}
+
+				if (zoomLevel > 1) {
+					viewerContainer.classList.add("zoomed");
+				} else {
+					viewerContainer.classList.remove("zoomed");
+				}
+			}
+
+			// Page height control
+			function getBasePageHeight() {
+				const vh = window.innerHeight;
+				if (isMobile()) {
+					// For mobile, fill screen minus toolbar (~50px)
+					return vh - 50;
+				} else {
+					// Desktop: aim for ~980px but don't exceed viewport too much
+					return Math.min(980, vh - 120);
+				}
+			}
+
+			// Compute CSS and internal sizes
+			function computeSizes(page, isSinglePage) {
+				const viewport0 = page.getViewport({ scale: 1 });
+				const ratio = viewport0.height / viewport0.width; // H/W
+
+				// Calculate dimensions based on height first
+				const baseHeight = getBasePageHeight();
+				let cssHeight = baseHeight;
+				let cssWidth = cssHeight / ratio;
+
+				// For mobile, constrain by width to prevent overflow (Fit-to-Width)
+				if (isMobile()) {
+					const maxWidth = window.innerWidth - 20; // 20px padding
+					if (cssWidth > maxWidth) {
+						cssWidth = maxWidth;
+						cssHeight = cssWidth * ratio;
+					}
+				}
+
+				// Store base sizes for zooming
+				currentBaseWidth = cssWidth;
+				currentBaseHeight = cssHeight;
+
+				const pixelRatio = window.devicePixelRatio || 1;
+				const internalWidth = cssWidth * pixelRatio * BASE_RENDER_SCALE;
+				const internalHeight = cssHeight * pixelRatio * BASE_RENDER_SCALE;
+
+				const scaleX = internalWidth / viewport0.width;
+				const scaleY = internalHeight / viewport0.height;
+				const scale = Math.max(scaleX, scaleY);
+
+				const viewport = page.getViewport({ scale });
+
+				return { cssWidth, cssHeight, viewport };
+			}
+
+			function setCanvasSize(canvas, viewport, cssWidth, cssHeight, ctx) {
+				canvas.width = viewport.width;
+				canvas.height = viewport.height;
+				// Apply current zoom level to CSS size
+				canvas.style.width = cssWidth * zoomLevel + "px";
+				canvas.style.height = cssHeight * zoomLevel + "px";
+				if (ctx) ctx.imageSmoothingEnabled = false;
+			}
+
+			function renderSingle(pageNum) {
+				rightCanvas.style.display = "none";
+
+				return pdfDoc.getPage(pageNum).then((page) => {
+					const { cssWidth, cssHeight, viewport } = computeSizes(page, true);
+
+					setCanvasSize(leftCanvas, viewport, cssWidth, cssHeight, leftCtx);
+
+					const renderContext = { canvasContext: leftCtx, viewport };
+					return page.render(renderContext).promise.then(() => {
+						const key = String(pageNum);
+						if (shouldPlayFlipSound && key !== lastRenderedKey) {
+							flipSoundEl && flipSoundEl.play().catch(() => {});
+						}
+						lastRenderedKey = key;
+
+						pageCurrent.textContent = pageNum;
+						pageTotal.textContent = pdfDoc.numPages;
+					});
+				});
+			}
+
+			function renderSpread(leftPageNum) {
+				rightCanvas.style.display = "block";
+
+				const leftPromise = pdfDoc.getPage(leftPageNum).then((page) => {
+					const { cssWidth, cssHeight, viewport } = computeSizes(page, false);
+					setCanvasSize(leftCanvas, viewport, cssWidth, cssHeight, leftCtx);
+					const renderContext = { canvasContext: leftCtx, viewport };
+					return page.render(renderContext).promise;
+				});
+
+				const rightPageNum = leftPageNum + 1;
+				let rightPromise;
+				if (rightPageNum <= pdfDoc.numPages) {
+					rightPromise = pdfDoc.getPage(rightPageNum).then((page) => {
+						const { cssWidth, cssHeight, viewport } = computeSizes(page, false);
+						setCanvasSize(rightCanvas, viewport, cssWidth, cssHeight, rightCtx);
+						const renderContext = { canvasContext: rightCtx, viewport };
+						return page.render(renderContext).promise;
+					});
+				} else {
+					rightCanvas.style.display = "none";
+					rightPromise = Promise.resolve();
+				}
+
+				return Promise.all([leftPromise, rightPromise]).then(() => {
+					let key;
+					if (rightPageNum <= pdfDoc.numPages) {
+						key = leftPageNum + "-" + rightPageNum;
+						pageCurrent.textContent = leftPageNum; // show left page index
+					} else {
+						key = String(leftPageNum);
+						pageCurrent.textContent = leftPageNum;
+					}
+					pageTotal.textContent = pdfDoc.numPages;
+
+					if (shouldPlayFlipSound && key !== lastRenderedKey) {
+						flipSoundEl && flipSoundEl.play().catch(() => {});
+					}
+					lastRenderedKey = key;
+				});
+			}
+
+			function renderCurrent() {
+				if (!pdfDoc) return;
+
+				isRendering = true;
+				loader.style.display = "block";
+				loader.textContent = "Rendering…";
+
+				const useSpread =
+					isSpreadMode() && currentPage > 1 && pdfDoc.numPages > 1;
+
+				const renderPromise = useSpread
+					? renderSpread(currentPage)
+					: renderSingle(currentPage);
+
+				renderPromise.then(() => {
+					isRendering = false;
+					loader.style.display = "none";
+
+					prevBtn.disabled = currentPage <= 1;
+
+					if (isSpreadMode()) {
+						const maxLeft =
+							pdfDoc.numPages % 2 === 0 ? pdfDoc.numPages - 1 : pdfDoc.numPages;
+						nextBtn.disabled = currentPage >= maxLeft;
+					} else {
+						nextBtn.disabled = currentPage >= pdfDoc.numPages;
+					}
+				});
+			}
+
+			function queueRenderCurrent() {
+				if (isRendering) {
+					setTimeout(queueRenderCurrent, 50);
+				} else {
+					renderCurrent();
+				}
+			}
+
+			// Navigation buttons
+			prevBtn.addEventListener("click", () => {
+				if (!pdfDoc || currentPage <= 1) return;
+
+				if (isSpreadMode()) {
+					if (currentPage <= 2) {
+						currentPage = 1;
+					} else {
+						currentPage = currentPage - 2;
+					}
+				} else {
+					currentPage = currentPage - 1;
+				}
+
+				shouldPlayFlipSound = true;
+				queueRenderCurrent();
+			});
+
+			nextBtn.addEventListener("click", () => {
+				if (!pdfDoc) return;
+
+				if (isSpreadMode()) {
+					if (currentPage === 1) {
+						if (pdfDoc.numPages >= 2) currentPage = 2;
+					} else {
+						const maxLeft =
+							pdfDoc.numPages % 2 === 0 ? pdfDoc.numPages - 1 : pdfDoc.numPages;
+						if (currentPage < maxLeft)
+							currentPage = Math.min(currentPage + 2, maxLeft);
+					}
+				} else {
+					if (currentPage < pdfDoc.numPages) currentPage = currentPage + 1;
+				}
+
+				shouldPlayFlipSound = true;
+				queueRenderCurrent();
+			});
+
+			// Zoom buttons (desktop + mobile)
+			zoomInBtn.addEventListener("click", () => {
+				setZoom(zoomLevel + ZOOM_STEP);
+			});
+
+			zoomOutBtn.addEventListener("click", () => {
+				setZoom(zoomLevel - ZOOM_STEP);
+			});
+
+			const zoomResetBtn = document.getElementById("zoomResetBtn");
+			zoomResetBtn.addEventListener("click", () => {
+				setZoom(1);
+			});
+
+			// Re-render on resize / orientation change (so base height adjusts)
+			window.addEventListener("resize", () => {
+				if (!pdfDoc) return;
+				queueRenderCurrent();
+			});
+
+			// ---- Interaction State (Mouse + Touch) ----
+			let isDragging = false;
+			let startX = 0;
+			let startY = 0;
+			let startScrollLeft = 0;
+			let startScrollTop = 0;
+
+			// Pinch state
+			let initialPinchDistance = null;
+			let startZoomLevel = 1;
+
+			// ---- Drag-to-pan (mouse) ----
+			viewerContainer.addEventListener("mousedown", (e) => {
+				if (zoomLevel <= 1) return;
+				isDragging = true;
+				viewerContainer.classList.add("dragging");
+				startX = e.clientX;
+				startY = e.clientY;
+				startScrollLeft = viewerContainer.scrollLeft;
+				startScrollTop = viewerContainer.scrollTop;
+			});
+
+			window.addEventListener("mousemove", (e) => {
+				if (!isDragging) return;
+				const dx = e.clientX - startX;
+				const dy = e.clientY - startY;
+				viewerContainer.scrollLeft = startScrollLeft - dx;
+				viewerContainer.scrollTop = startScrollTop - dy;
+			});
+
+			window.addEventListener("mouseup", () => {
+				if (!isDragging) return;
+				isDragging = false;
+				viewerContainer.classList.remove("dragging");
+			});
+
+			// ---- Touch Handling (Drag + Pinch Zoom) ----
+			function getPinchDistance(touches) {
+				const dx = touches[0].clientX - touches[1].clientX;
+				const dy = touches[0].clientY - touches[1].clientY;
+				return Math.sqrt(dx * dx + dy * dy);
+			}
+
+			viewerContainer.addEventListener("touchstart", (e) => {
+				if (e.touches.length === 2) {
+					// Start pinch
+					isDragging = false;
+					initialPinchDistance = getPinchDistance(e.touches);
+					startZoomLevel = zoomLevel;
+				} else if (e.touches.length === 1) {
+					// Start drag (only if zoomed in or content overflows)
+					// We allow drag always if zoomed > 1 for "free drag" feel
+					if (
+						zoomLevel > 1 ||
+						viewerContainer.scrollWidth > viewerContainer.clientWidth ||
+						viewerContainer.scrollHeight > viewerContainer.clientHeight
+					) {
+						isDragging = true;
+						viewerContainer.classList.add("dragging");
+						const t = e.touches[0];
+						startX = t.clientX;
+						startY = t.clientY;
+						startScrollLeft = viewerContainer.scrollLeft;
+						startScrollTop = viewerContainer.scrollTop;
+					}
+				}
+			});
+
+			viewerContainer.addEventListener(
+				"touchmove",
+				(e) => {
+					if (e.touches.length === 2 && initialPinchDistance !== null) {
+						// Handle pinch
+						e.preventDefault(); // prevent browser zoom
+						const currentDistance = getPinchDistance(e.touches);
+						const scale = currentDistance / initialPinchDistance;
+						const newZoom = startZoomLevel * scale;
+						setZoom(newZoom);
+					} else if (e.touches.length === 1 && isDragging) {
+						// Handle drag
+						e.preventDefault(); // prevent native scroll chaining / pull-to-refresh
+						const t = e.touches[0];
+						const dx = t.clientX - startX;
+						const dy = t.clientY - startY;
+						viewerContainer.scrollLeft = startScrollLeft - dx;
+						viewerContainer.scrollTop = startScrollTop - dy;
+					}
+				},
+				{ passive: false }
+			);
+
+			viewerContainer.addEventListener("touchend", (e) => {
+				// If fingers lifted, reset states
+				if (e.touches.length < 2) {
+					initialPinchDistance = null;
+				}
+				if (e.touches.length === 0) {
+					isDragging = false;
+					viewerContainer.classList.remove("dragging");
+				}
+			});
+
+			// ---- Load PDF ----
+			loader.textContent = "Loading PDF…";
+
+			const task = pdfjsLib.getDocument(pdfUrl);
+			task.promise
+				.then((pdf) => {
+					pdfDoc = pdf;
+					pageTotal.textContent = pdfDoc.numPages;
+					setZoom(1);
+					renderCurrent();
+				})
+				.catch((err) => {
+					console.error(err);
+					loader.textContent = "Failed to load PDF: " + err.message;
+				});
+		</script>
+	</body>
+</html>
