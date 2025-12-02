@@ -71,6 +71,8 @@
 
 			.page-info-text {
 				font-weight: 500;
+				opacity: 0;
+				transition: opacity 0.3s;
 			}
 
 			.toolbar-right {
@@ -115,6 +117,8 @@
 				display: flex;
 				justify-content: center;
 				background: #ffffff;
+				padding-top: 15px;
+				box-shadow: 0px 5px 10px 0.5px #cccccc;
 			}
 
 			.viewer-container {
@@ -233,7 +237,7 @@
 			}
 
 			/* Mobile styles applied via class instead of media query */
-			#flipbook-app.is-mobile .top-toolbar {
+			/* #flipbook-app.is-mobile .top-toolbar {
 				position: absolute;
 				bottom: 0;
 				left: 0;
@@ -241,8 +245,8 @@
 				box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
 				padding-bottom: calc(
 					12px + env(safe-area-inset-bottom)
-				); /* Safe area for iPhone X+ */
-			}
+				); /* Safe area for iPhone X+ 
+			} */
 			#flipbook-app.is-mobile .nav-left {
 				left: 10px;
 			}
@@ -306,8 +310,10 @@
 
 		<script>
 			// Your PDF file
-			const pdfUrl =
-				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
+			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
+
+			// const pdfUrl =
+			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
 			const appContainer = document.getElementById("flipbook-app");
 			const viewerContainer = document.getElementById("viewerContainer");
@@ -376,9 +382,9 @@
 				}
 			}
 
-			function updatePageInfo() {
+			function updatePageInfo(overridePage) {
 				if (!turnReady) return;
-				const current = $("#flipbook").turn("page");
+				const current = overridePage || $("#flipbook").turn("page");
 				const total = $("#flipbook").turn("pages");
 				pageCurrent.textContent = current;
 				pageTotal.textContent = total;
@@ -522,10 +528,14 @@
 					flipbookEl.style.opacity = "1";
 					document.querySelector(".viewer-wrapper").classList.remove("loading");
 
+					// Show page info
+					document.querySelector(".page-info-text").style.opacity = "1";
+
 					// Bind events
 					$("#flipbook").bind("turning", (e, page, view) => {
 						flipSoundEl.currentTime = 0;
 						flipSoundEl.play().catch(() => {});
+						updatePageInfo(page);
 					});
 
 					$("#flipbook").bind("turned", (e, page, view) => {
