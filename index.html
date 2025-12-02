@@ -8,6 +8,12 @@
 			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
 		/>
 
+		<!-- Temporary hack to prevent AMD/RequireJS (Magento) from capturing the libraries -->
+		<script>
+			var _oldDefine = window.define;
+			window.define = null;
+		</script>
+
 		<!-- jQuery (required for turn.js) -->
 		<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
@@ -19,6 +25,11 @@
 		<script>
 			pdfjsLib.GlobalWorkerOptions.workerSrc =
 				"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+		</script>
+
+		<!-- Restore define -->
+		<script>
+			if (_oldDefine) window.define = _oldDefine;
 		</script>
 
 		<!-- FontAwesome -->
@@ -255,11 +266,6 @@
 					padding-bottom: 60px; /* Space for fixed bottom toolbar */
 				}
 				/* Loader is already centered, no need to move it for mobile */
-
-				#flipbook {
-					width: 90vw !important;
-					height: 60vh !important;
-				}
 			}
 		</style>
 	</head>
@@ -307,7 +313,8 @@
 
 		<script>
 			// Your PDF file
-			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
+			const pdfUrl =
+				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
 			const viewerContainer = document.getElementById("viewerContainer");
 			const zoomWrapper = document.getElementById("zoomWrapper");
@@ -326,6 +333,7 @@
 
 			let pdfDoc = null;
 			let turnReady = false;
+			let pdfAspectRatio = null;
 
 			// Zoom state
 			let zoomLevel = 1;
@@ -391,12 +399,38 @@
 				// Resize flipbook based on screen
 				const w = window.innerWidth;
 				const h = window.innerHeight;
+				const mobile = isMobile();
 
-				if (isMobile()) {
+				// Check and update display mode if needed
+				const currentDisplay = $("#flipbook").turn("display");
+				const targetDisplay = mobile ? "single" : "double";
+
+				if (currentDisplay !== targetDisplay) {
+					$("#flipbook").turn("display", targetDisplay);
+				}
+
+				// Calculate target aspect ratio based on PDF page ratio
+				// If double view, ratio is width*2 / height
+				// If single view, ratio is width / height
+				// Default to 1000/600 if pdfAspectRatio not yet set (should be set by now)
+				const singlePageRatio = pdfAspectRatio || 1000 / 600;
+				const targetRatio = mobile ? singlePageRatio : singlePageRatio * 2;
+
+				if (mobile) {
 					const mobileW = w - 20;
 					// Subtract toolbar height (approx 60px) + safe area estimate (20px) + padding
 					const mobileH = h - 120;
-					$("#flipbook").turn("size", mobileW, mobileH);
+
+					// Maintain aspect ratio within mobile bounds
+					let newW = mobileW;
+					let newH = newW / targetRatio;
+
+					if (newH > mobileH) {
+						newH = mobileH;
+						newW = newH * targetRatio;
+					}
+
+					$("#flipbook").turn("size", newW, newH);
 				} else {
 					// Desktop size: fit within screen with padding
 					// Increased padding to prevent scrollbars appearing during page flip animation
@@ -404,9 +438,6 @@
 					const paddingY = 120;
 					const availableW = w - paddingX;
 					const availableH = h - paddingY;
-
-					// Target aspect ratio (1000/600 = 1.666)
-					const targetRatio = 1000 / 600;
 
 					let newW = availableW;
 					let newH = newW / targetRatio;
@@ -454,6 +485,14 @@
 					pdfDoc = pdf;
 					pageTotal.textContent = pdfDoc.numPages;
 
+					// Get the first page to determine aspect ratio
+					return pdf.getPage(1).then((page) => {
+						const viewport = page.getViewport({ scale: 1 });
+						pdfAspectRatio = viewport.width / viewport.height;
+						return pdf;
+					});
+				})
+				.then((pdf) => {
 					const tasks = [];
 					for (let i = 1; i <= pdf.numPages; i++) {
 						tasks.push(renderPage(pdf, i));
