@@ -463,26 +463,43 @@
 				}
 			}
 
-			function renderPage(pdf, pageNum) {
-				return pdf.getPage(pageNum).then((page) => {
-					const viewport = page.getViewport({ scale: 1.5 }); // Good quality scale
+			function loadPage(pageNum) {
+				// Find the existing page element
+				const pageElement = document.querySelector(
+					`.page[data-page="${pageNum}"]`
+				);
 
-					const div = document.createElement("div");
-					div.className = "page";
+				if (!pageElement) return;
+				if (pageElement.classList.contains("loaded")) return; // Already loaded
 
+				pageElement.classList.add("loaded"); // Mark as loaded immediately to prevent double fetch
+
+				// Fetch and render
+				pdfDoc.getPage(pageNum).then((page) => {
+					const viewport = page.getViewport({ scale: 1.5 });
 					const canvas = document.createElement("canvas");
 					canvas.width = viewport.width;
 					canvas.height = viewport.height;
-					div.appendChild(canvas);
 
-					// Append to flipbook container (turn.js will organize them)
-					flipbookEl.appendChild(div);
+					pageElement.innerHTML = ""; // Clear loader
+					pageElement.appendChild(canvas);
 
-					return page.render({
+					page.render({
 						canvasContext: canvas.getContext("2d"),
 						viewport: viewport,
-					}).promise;
+					});
 				});
+			}
+
+			function updateVisiblePages(pageNum) {
+				if (!turnReady) return;
+
+				// Get the range of pages that should be in the DOM/visible
+				const range = $("#flipbook").turn("range", pageNum);
+
+				for (let i = range[0]; i <= range[1]; i++) {
+					loadPage(i);
+				}
 			}
 
 			// Load PDF
@@ -499,27 +516,35 @@
 						return pdf;
 					});
 				})
-				.then((pdf) => {
-					const tasks = [];
-					for (let i = 1; i <= pdf.numPages; i++) {
-						tasks.push(renderPage(pdf, i));
-					}
-					return Promise.all(tasks);
-				})
 				.then(() => {
+					// Pre-create empty page elements
+					const fragment = document.createDocumentFragment();
+					for (let i = 1; i <= pdfDoc.numPages; i++) {
+						const div = document.createElement("div");
+						div.className = "page";
+						div.setAttribute("data-page", i);
+						div.innerHTML = '<div class="loader-small"></div>';
+						fragment.appendChild(div);
+					}
+					flipbookEl.appendChild(fragment);
+
 					loader.style.display = "none";
 
 					// Initialize turn.js
 					$("#flipbook").turn({
-						autoCenter: false, // Disable autoCenter to prevent conflict with our CSS centering
-						elevation: 0, // Reduce elevation to prevent "flyover" effect
+						autoCenter: false,
+						elevation: 0,
 						gradients: true,
 						acceleration: true,
-						duration: 1000, // 1s flip duration
+						duration: 1000,
 						display: isMobile() ? "single" : "double",
 					});
 
 					turnReady = true;
+
+					// Initial load of visible pages
+					updateVisiblePages(1);
+
 					updatePageInfo();
 					updateLayout();
 
@@ -536,6 +561,7 @@
 						flipSoundEl.currentTime = 0;
 						flipSoundEl.play().catch(() => {});
 						updatePageInfo(page);
+						updateVisiblePages(page);
 					});
 
 					$("#flipbook").bind("turned", (e, page, view) => {
