@@ -310,10 +310,8 @@
 
 		<script>
 			// Your PDF file
-			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
-
-			// const pdfUrl =
-			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
+			const pdfUrl =
+				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
 			const appContainer = document.getElementById("flipbook-app");
 			const viewerContainer = document.getElementById("viewerContainer");
@@ -476,10 +474,16 @@
 
 				// Fetch and render
 				pdfDoc.getPage(pageNum).then((page) => {
-					const viewport = page.getViewport({ scale: 1.5 });
+					// Increase scale to 3 for high quality zoom (300%)
+					// const viewport = page.getViewport({ scale: 3 });
+					const viewport = page.getViewport({ scale: 3 });
 					const canvas = document.createElement("canvas");
 					canvas.width = viewport.width;
 					canvas.height = viewport.height;
+
+					// Force canvas to fit container via CSS
+					canvas.style.width = "100%";
+					canvas.style.height = "100%";
 
 					pageElement.innerHTML = ""; // Clear loader
 					pageElement.appendChild(canvas);
