@@ -43,18 +43,13 @@
 				box-sizing: border-box;
 			}
 
-			html,
-			body {
+			#flipbook-app {
+				position: relative;
+				width: 100%;
 				height: 100%;
+				min-height: 600px; /* Prevent collapse if parent has no height */
 				overflow: hidden;
-				overscroll-behavior: none;
-			}
-
-			body {
-				margin: 0;
-				padding: 0;
 				background: #ffffff;
-				color: #333;
 				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 					Arial, sans-serif;
 				display: flex;
@@ -170,9 +165,9 @@
 				display: block;
 			}
 
-			/* Left / right nav buttons (fixed position) */
+			/* Left / right nav buttons (absolute position relative to app) */
 			.nav-btn {
-				position: fixed;
+				position: absolute;
 				top: 50%;
 				transform: translateY(-50%);
 				width: 40px;
@@ -237,85 +232,84 @@
 				}
 			}
 
-			@media (max-width: 900px) {
-				.top-toolbar {
-					position: fixed;
-					bottom: 0;
-					left: 0;
-					width: 100%;
-					box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
-					padding-bottom: calc(
-						12px + env(safe-area-inset-bottom)
-					); /* Safe area for iPhone X+ */
-				}
-				.nav-left {
-					left: 10px;
-				}
-				.nav-right {
-					right: 10px;
-				}
-				.nav-btn {
-					width: 34px;
-					height: 34px;
-					font-size: 18px;
-				}
-				.viewer-container {
-					padding-bottom: 60px; /* Space for fixed bottom toolbar */
-				}
-				.viewer-container {
-					padding-bottom: 60px; /* Space for fixed bottom toolbar */
-				}
-				/* Loader is already centered, no need to move it for mobile */
+			/* Mobile styles applied via class instead of media query */
+			#flipbook-app.is-mobile .top-toolbar {
+				position: absolute;
+				bottom: 0;
+				left: 0;
+				width: 100%;
+				box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
+				padding-bottom: calc(
+					12px + env(safe-area-inset-bottom)
+				); /* Safe area for iPhone X+ */
 			}
+			#flipbook-app.is-mobile .nav-left {
+				left: 10px;
+			}
+			#flipbook-app.is-mobile .nav-right {
+				right: 10px;
+			}
+			#flipbook-app.is-mobile .nav-btn {
+				width: 34px;
+				height: 34px;
+				font-size: 18px;
+			}
+			#flipbook-app.is-mobile .viewer-container {
+				padding-bottom: 60px; /* Space for fixed bottom toolbar */
+			}
+			/* Loader is already centered, no need to move it for mobile */
 		</style>
 	</head>
 	<body>
-		<!-- Top toolbar -->
-		<div class="top-toolbar">
-			<div class="page-info-text">
-				Page <span id="pageCurrent">1</span> / <span id="pageTotal">0</span>
-			</div>
-			<div class="toolbar-right">
-				<button id="zoomOutBtn" class="btn zoom-btn">
-					<i class="fa-solid fa-magnifying-glass-minus"></i>
-				</button>
-				<span id="zoomLabel" class="zoom-label">100%</span>
-				<button id="zoomInBtn" class="btn zoom-btn">
-					<i class="fa-solid fa-magnifying-glass-plus"></i>
-				</button>
-				<button id="zoomResetBtn" class="btn zoom-btn" title="Reset to 100%">
-					<i class="fa-solid fa-rotate-left"></i>
-				</button>
-			</div>
-		</div>
-
-		<!-- Main viewer -->
-		<div class="viewer-wrapper loading">
-			<button id="prevBtn" class="nav-btn nav-left">
-				<i class="fa-solid fa-chevron-left"></i>
-			</button>
-
-			<div class="viewer-container" id="viewerContainer">
-				<div id="zoomWrapper">
-					<div id="flipbook"></div>
+		<div id="flipbook-app">
+			<!-- Top toolbar -->
+			<div class="top-toolbar">
+				<div class="page-info-text">
+					Page <span id="pageCurrent">1</span> / <span id="pageTotal">0</span>
+				</div>
+				<div class="toolbar-right">
+					<button id="zoomOutBtn" class="btn zoom-btn">
+						<i class="fa-solid fa-magnifying-glass-minus"></i>
+					</button>
+					<span id="zoomLabel" class="zoom-label">100%</span>
+					<button id="zoomInBtn" class="btn zoom-btn">
+						<i class="fa-solid fa-magnifying-glass-plus"></i>
+					</button>
+					<button id="zoomResetBtn" class="btn zoom-btn" title="Reset to 100%">
+						<i class="fa-solid fa-rotate-left"></i>
+					</button>
 				</div>
 			</div>
 
-			<button id="nextBtn" class="nav-btn nav-right">
-				<i class="fa-solid fa-chevron-right"></i>
-			</button>
+			<!-- Main viewer -->
+			<div class="viewer-wrapper loading">
+				<button id="prevBtn" class="nav-btn nav-left">
+					<i class="fa-solid fa-chevron-left"></i>
+				</button>
+
+				<div class="viewer-container" id="viewerContainer">
+					<div id="zoomWrapper">
+						<div id="flipbook"></div>
+					</div>
+				</div>
+
+				<button id="nextBtn" class="nav-btn nav-right">
+					<i class="fa-solid fa-chevron-right"></i>
+				</button>
+			</div>
+
+			<div class="loader" id="loader"></div>
+
+			<!-- Flip sound -->
+			<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
 		</div>
-
-		<div class="loader" id="loader"></div>
-
-		<!-- Flip sound -->
-		<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
 
 		<script>
 			// Your PDF file
 			const pdfUrl =
 				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
+			const appContainer = document.getElementById("flipbook-app");
 			const viewerContainer = document.getElementById("viewerContainer");
 			const zoomWrapper = document.getElementById("zoomWrapper");
 			const flipbookEl = document.getElementById("flipbook");
@@ -353,7 +347,7 @@
 			let startZoomLevel = 1;
 
 			function isMobile() {
-				return window.innerWidth < 900;
+				return appContainer.clientWidth < 900;
 			}
 
 			function setZoom(value) {
@@ -396,10 +390,17 @@
 			function updateLayout() {
 				if (!turnReady) return;
 
-				// Resize flipbook based on screen
-				const w = window.innerWidth;
-				const h = window.innerHeight;
+				// Resize flipbook based on container
+				const w = appContainer.clientWidth;
+				const h = appContainer.clientHeight;
 				const mobile = isMobile();
+
+				// Update container class for CSS styling
+				if (mobile) {
+					appContainer.classList.add("is-mobile");
+				} else {
+					appContainer.classList.remove("is-mobile");
+				}
 
 				// Check and update display mode if needed
 				const currentDisplay = $("#flipbook").turn("display");
@@ -531,10 +532,11 @@
 						updatePageInfo();
 					});
 
-					// Initial resize check
-					window.addEventListener("resize", () => {
+					// Initial resize check using ResizeObserver
+					const resizeObserver = new ResizeObserver(() => {
 						updateLayout();
 					});
+					resizeObserver.observe(appContainer);
 				})
 				.catch((err) => {
 					console.error(err);
