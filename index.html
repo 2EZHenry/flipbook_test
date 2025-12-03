@@ -319,7 +319,7 @@
 
 		<script>
 			// Your PDF file
-			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
+			const pdfUrl = "LAPP25_LCC_Catalogue_full_1-30.pdf";
 			// const pdfUrl =
 			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
@@ -378,15 +378,7 @@
 					zoomWrapper.style.transformOrigin = "0 0";
 					viewerContainer.classList.add("zoomed");
 					viewerContainer.style.overflow = "auto"; // Enable scrollbars for panning
-				}
-
-				// Apply zoom via CSS transform
-				zoomWrapper.style.transform = `scale(${zoomLevel})`;
-
-				if (zoomLevel <= 1) {
-					// Reset scroll when zooming out to 100%
-					viewerContainer.scrollLeft =
-						(viewerContainer.scrollWidth - viewerContainer.clientWidth) / 2;
+					$("#flipbook").turn("next");
 				}
 			}
 
@@ -425,18 +417,13 @@
 				}
 
 				// Calculate target aspect ratio based on PDF page ratio
-				// If double view, ratio is width*2 / height
-				// If single view, ratio is width / height
-				// Default to 1000/600 if pdfAspectRatio not yet set (should be set by now)
 				const singlePageRatio = pdfAspectRatio || 1000 / 600;
 				const targetRatio = mobile ? singlePageRatio : singlePageRatio * 2;
 
 				if (mobile) {
 					const mobileW = w - 20;
-					// Subtract toolbar height (approx 60px) + safe area estimate (20px) + padding
 					const mobileH = h - 120;
 
-					// Maintain aspect ratio within mobile bounds
 					let newW = mobileW;
 					let newH = newW / targetRatio;
 
@@ -447,8 +434,6 @@
 
 					$("#flipbook").turn("size", newW, newH);
 				} else {
-					// Desktop size: fit within screen with padding
-					// Increased padding to prevent scrollbars appearing during page flip animation
 					const paddingX = 150;
 					const paddingY = 120;
 					const availableW = w - paddingX;
@@ -471,55 +456,115 @@
 				}
 			}
 
-			function loadPage(pageNum) {
+			function loadPage(pageNum, scale = 1.5) {
 				// Find the existing page element
 				const pageElement = document.querySelector(
 					`.page[data-page="${pageNum}"]`
 				);
 
 				if (!pageElement) return;
-				if (pageElement.classList.contains("loaded")) return; // Already loaded
 
-				pageElement.classList.add("loaded"); // Mark as loaded immediately to prevent double fetch
+				// Check if already loaded at the requested scale (or higher)
+				const currentScale = parseFloat(
+					pageElement.getAttribute("data-scale") || "0"
+				);
+				if (pageElement.classList.contains("loaded") && currentScale >= scale) {
+					return;
+				}
+
+				pageElement.classList.add("loaded");
+				pageElement.setAttribute("data-scale", scale);
 
 				// Fetch and render
-				pdfDoc.getPage(pageNum).then((page) => {
-					// Increase scale to 3 for high quality zoom (300%)
-					// const viewport = page.getViewport({ scale: 3 });
-					const viewport = page.getViewport({ scale: 3 });
-					const canvas = document.createElement("canvas");
-					canvas.width = viewport.width;
-					canvas.height = viewport.height;
+				pdfDoc
+					.getPage(pageNum)
+					.then((page) => {
+						const viewport = page.getViewport({ scale: scale });
+						const canvas = document.createElement("canvas");
+						canvas.width = viewport.width;
+						canvas.height = viewport.height;
 
-					// Force canvas to fit container via CSS
-					canvas.style.width = "100%";
-					canvas.style.height = "100%";
+						// Force canvas to fit container via CSS
+						canvas.style.width = "100%";
+						canvas.style.height = "100%";
 
-					pageElement.innerHTML = ""; // Clear loader
-					pageElement.appendChild(canvas);
+						pageElement.innerHTML = ""; // Clear loader or old canvas
+						pageElement.appendChild(canvas);
 
-					page.render({
-						canvasContext: canvas.getContext("2d"),
-						viewport: viewport,
+						page.render({
+							canvasContext: canvas.getContext("2d"),
+							viewport: viewport,
+						});
+					})
+					.catch((err) => {
+						console.error(`Error loading page ${pageNum}:`, err);
 					});
-				});
+			}
+
+			function unloadPage(pageNum) {
+				const pageElement = document.querySelector(
+					`.page[data-page="${pageNum}"]`
+				);
+				if (pageElement && pageElement.classList.contains("loaded")) {
+					pageElement.classList.remove("loaded");
+					pageElement.removeAttribute("data-scale");
+					pageElement.innerHTML = '<div class="loader-small"></div>';
+				}
 			}
 
 			function updateVisiblePages(pageNum) {
 				if (!turnReady) return;
 
-				// Get the range of pages that should be in the DOM/visible
 				const range = $("#flipbook").turn("range", pageNum);
 
+				// Determine target scale based on zoom level
+				const targetScale = zoomLevel > 1.2 ? 2.0 : 1.5;
+
+				// Load pages in range
 				for (let i = range[0]; i <= range[1]; i++) {
-					loadPage(i);
+					loadPage(i, targetScale);
 				}
+
+				// Unload pages outside of a wider buffer range to save memory
+				const buffer = 4;
+				const minKeep = Math.max(1, range[0] - buffer);
+				const maxKeep = Math.min(pdfDoc.numPages, range[1] + buffer);
+
+				const loadedPages = document.querySelectorAll(".page.loaded");
+				loadedPages.forEach((el) => {
+					const p = parseInt(el.getAttribute("data-page"));
+					if (p < minKeep || p > maxKeep) {
+						unloadPage(p);
+					}
+				});
+			}
+
+			// Retry helper
+			function getDocumentWithRetry(url, retries = 3) {
+				return new Promise((resolve, reject) => {
+					const attempt = (n) => {
+						pdfjsLib
+							.getDocument(url)
+							.promise.then(resolve)
+							.catch((err) => {
+								if (n > 1) {
+									console.warn(
+										`PDF load failed, retrying... (${n - 1} attempts left)`,
+										err
+									);
+									setTimeout(() => attempt(n - 1), 1000);
+								} else {
+									reject(err);
+								}
+							});
+					};
+					attempt(retries);
+				});
 			}
 
 			// Load PDF
-			pdfjsLib
-				.getDocument(pdfUrl)
-				.promise.then((pdf) => {
+			getDocumentWithRetry(pdfUrl)
+				.then((pdf) => {
 					pdfDoc = pdf;
 					pageTotal.textContent = pdfDoc.numPages;
 
@@ -591,6 +636,14 @@
 				.catch((err) => {
 					console.error(err);
 					loader.textContent = "Error: " + err.message;
+					// Add a retry button manually if it fails completely?
+					const retryBtn = document.createElement("button");
+					retryBtn.textContent = "Retry";
+					retryBtn.onclick = () => location.reload();
+					retryBtn.style.marginTop = "10px";
+					retryBtn.style.display = "block";
+					retryBtn.style.margin = "10px auto";
+					loader.appendChild(retryBtn);
 				});
 
 			// Navigation
@@ -600,16 +653,6 @@
 
 			nextBtn.addEventListener("click", () => {
 				if (turnReady) $("#flipbook").turn("next");
-			});
-
-			// Keyboard Navigation
-			window.addEventListener("keydown", (e) => {
-				if (!turnReady) return;
-				if (e.key === "ArrowLeft") {
-					$("#flipbook").turn("previous");
-				} else if (e.key === "ArrowRight") {
-					$("#flipbook").turn("next");
-				}
 			});
 
 			// Zoom Controls
