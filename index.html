@@ -47,7 +47,7 @@
 				position: relative;
 				width: 100%;
 				height: 100%;
-				min-height: 600px; /* Prevent collapse if parent has no height */
+				min-height: 920px; /* Prevent collapse if parent has no height */
 				overflow: hidden;
 				background: #ffffff;
 				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -56,17 +56,28 @@
 				flex-direction: column;
 			}
 
+			@media (max-width: 768px) {
+				#flipbook-app {
+					min-height: 600px;
+				}
+			}
+			@media (max-width: 590px) {
+				#flipbook-app {
+					min-height: 500px;
+				}
+			}
+
 			/* Top bar: page info + zoom */
 			.top-toolbar {
 				display: flex;
 				justify-content: space-between;
 				align-items: center;
 				padding: 12px 12px;
-				color: white;
-				background: #ff7100;
+				/* color: white; */
+				/* background: #ff7100; */
 				box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 				font-size: 16px;
-				z-index: 5;
+				/* z-index: 5; */
 			}
 
 			.page-info-text {
@@ -123,7 +134,7 @@
 
 			.viewer-container {
 				width: 100%;
-				height: 100%;
+				/* height: 100%; */
 				overflow: hidden; /* Hide scrollbars by default (when not zoomed) */
 				touch-action: pan-x pan-y;
 				cursor: default;
@@ -258,9 +269,7 @@
 				height: 34px;
 				font-size: 18px;
 			}
-			#flipbook-app.is-mobile .viewer-container {
-				padding-bottom: 60px; /* Space for fixed bottom toolbar */
-			}
+
 			/* Loader is already centered, no need to move it for mobile */
 		</style>
 	</head>
@@ -310,8 +319,9 @@
 
 		<script>
 			// Your PDF file
-			const pdfUrl =
-				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
+			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
+			// const pdfUrl =
+			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
 			const appContainer = document.getElementById("flipbook-app");
 			const viewerContainer = document.getElementById("viewerContainer");
@@ -336,7 +346,7 @@
 			// Zoom state
 			let zoomLevel = 1;
 			const ZOOM_LEVELS = [
-				0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0,
+				1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0,
 			];
 			const ZOOM_MIN = ZOOM_LEVELS[0];
 			const ZOOM_MAX = ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
