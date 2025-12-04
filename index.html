@@ -8,6 +8,10 @@
 			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
 		/>
 
+		<!-- Preconnect to CDNs for faster resource loading -->
+		<link rel="preconnect" href="https://code.jquery.com" />
+		<link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+
 		<!-- Temporary hack to prevent AMD/RequireJS (Magento) from capturing the libraries -->
 		<script>
 			var _oldDefine = window.define;
@@ -32,11 +36,19 @@
 			if (_oldDefine) window.define = _oldDefine;
 		</script>
 
-		<!-- FontAwesome -->
+		<!-- FontAwesome - load asynchronously to prevent render blocking -->
 		<link
 			rel="stylesheet"
 			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+			media="print"
+			onload="this.media='all'"
 		/>
+		<noscript>
+			<link
+				rel="stylesheet"
+				href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+			/>
+		</noscript>
 
 		<style>
 			* {
@@ -314,14 +326,14 @@
 			<div class="loader" id="loader"></div>
 
 			<!-- Flip sound -->
-			<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
+			<audio id="flipSound" src="page-flip.wav" preload="none"></audio>
 		</div>
 
 		<script>
 			// Your PDF file
-			const pdfUrl = "Lapp25_Catalogue_full_1-30.pdf";
-			// const pdfUrl =
-			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
+			// const pdfUrl = "LAPP25_LCC_Catalogue_full_1-30.pdf";
+			const pdfUrl =
+				"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
 
 			const appContainer = document.getElementById("flipbook-app");
 			const viewerContainer = document.getElementById("viewerContainer");
@@ -342,6 +354,9 @@
 			let pdfDoc = null;
 			let turnReady = false;
 			let pdfAspectRatio = null;
+
+			// Canvas cache to prevent re-rendering
+			const canvasCache = {};
 
 			// Zoom state
 			let zoomLevel = 1;
@@ -482,11 +497,17 @@
 
 				pageElement.classList.add("loaded"); // Mark as loaded immediately to prevent double fetch
 
+				// Check cache first
+				if (canvasCache[pageNum]) {
+					pageElement.innerHTML = ""; // Clear loader
+					pageElement.appendChild(canvasCache[pageNum].cloneNode(true));
+					return;
+				}
+
 				// Fetch and render
 				pdfDoc.getPage(pageNum).then((page) => {
-					// Increase scale to 3 for high quality zoom (300%)
-					// const viewport = page.getViewport({ scale: 3 });
-					const viewport = page.getViewport({ scale: 3 });
+					// Scale 2 for good quality with better performance (was 3)
+					const viewport = page.getViewport({ scale: 2 });
 					const canvas = document.createElement("canvas");
 					canvas.width = viewport.width;
 					canvas.height = viewport.height;
@@ -498,10 +519,15 @@
 					pageElement.innerHTML = ""; // Clear loader
 					pageElement.appendChild(canvas);
 
-					page.render({
-						canvasContext: canvas.getContext("2d"),
-						viewport: viewport,
-					});
+					page
+						.render({
+							canvasContext: canvas.getContext("2d"),
+							viewport: viewport,
+						})
+						.promise.then(() => {
+							// Cache the rendered canvas
+							canvasCache[pageNum] = canvas.cloneNode(true);
+						});
 				});
 			}
 
@@ -511,8 +537,31 @@
 				// Get the range of pages that should be in the DOM/visible
 				const range = $("#flipbook").turn("range", pageNum);
 
+				// Load visible pages immediately
 				for (let i = range[0]; i <= range[1]; i++) {
 					loadPage(i);
+				}
+
+				// Aggressively preload adjacent pages (3 pages ahead and behind)
+				const totalPages = pdfDoc.numPages;
+				const preloadCount = 3;
+
+				// Preload pages after current range
+				for (
+					let i = range[1] + 1;
+					i <= Math.min(range[1] + preloadCount, totalPages);
+					i++
+				) {
+					setTimeout(() => loadPage(i), 100 * (i - range[1])); // Stagger the loads
+				}
+
+				// Preload pages before current range
+				for (
+					let i = range[0] - 1;
+					i >= Math.max(range[0] - preloadCount, 1);
+					i--
+				) {
+					setTimeout(() => loadPage(i), 100 * (range[0] - i)); // Stagger the loads
 				}
 			}
 
