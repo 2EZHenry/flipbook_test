@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Bristol Catalogue Viewer</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+		<link
+			rel="stylesheet"
+			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+		/>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+		<script src="https://unpkg.com/page-flip/dist/js/page-flip.browser.js"></script>
+		<script>
+			pdfjsLib.GlobalWorkerOptions.workerSrc =
+				"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+		</script>
+
+		<style>
+			:root {
+				--brand-green: #84bd00;
+				--brand-green-dark: #6b9900;
+				--text-dark: #333333;
+				--surface: #f6f6f2;
+				--panel: #ffffff;
+				--line: rgba(0, 0, 0, 0.12);
+				--shadow: 0 24px 48px rgba(0, 0, 0, 0.12);
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				overflow: hidden;
+			}
+
+			body {
+				background: radial-gradient(
+						circle at top,
+						rgba(132, 189, 0, 0.12),
+						transparent 26%
+					),
+					linear-gradient(180deg, #fcfcf9 0%, var(--surface) 100%);
+				color: var(--text-dark);
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+					Arial, sans-serif;
+				display: flex;
+				flex-direction: column;
+			}
+
+			.top-toolbar {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px;
+				color: #ffffff;
+				background: linear-gradient(
+					135deg,
+					var(--brand-green) 0%,
+					var(--brand-green-dark) 100%
+				);
+				box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+				font-size: 16px;
+				z-index: 5;
+			}
+
+			.page-info-text {
+				font-weight: 600;
+				letter-spacing: 0.02em;
+			}
+
+			.toolbar-right {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+
+			.btn {
+				cursor: pointer;
+				border: 1px solid rgba(255, 255, 255, 0.35);
+				background: rgba(255, 255, 255, 0.16);
+				color: #ffffff;
+				border-radius: 999px;
+				padding: 6px 11px;
+				font-size: 13px;
+				min-width: 34px;
+				text-align: center;
+				user-select: none;
+				transition: background 0.15s, transform 0.1s, border-color 0.15s;
+				backdrop-filter: blur(8px);
+			}
+
+			.btn:hover {
+				background: rgba(255, 255, 255, 0.24);
+				border-color: rgba(255, 255, 255, 0.55);
+			}
+
+			.btn:active {
+				transform: scale(0.97);
+			}
+
+			.zoom-label {
+				min-width: 48px;
+				text-align: center;
+				font-weight: 600;
+			}
+
+			.viewer-wrapper {
+				flex: 1;
+				position: relative;
+				overflow: hidden;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 0 74px;
+			}
+
+			.viewer-container {
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				position: relative;
+			}
+
+			.viewer-inner {
+				min-height: 100%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 12px;
+			}
+
+			#bookStage {
+				transform-origin: center center;
+				transition: transform 0.18s ease;
+				will-change: transform;
+				padding: 24px;
+			}
+
+			#flipbook {
+				margin: 0 auto;
+				filter: drop-shadow(var(--shadow));
+			}
+
+			#flipbook .stf__parent {
+				overflow: visible !important;
+			}
+
+			.page {
+				background: var(--panel);
+				overflow: hidden;
+			}
+
+			.page.page-cover {
+				background: linear-gradient(
+						180deg,
+						rgba(132, 189, 0, 0.14) 0%,
+						rgba(132, 189, 0, 0.04) 100%
+					),
+					var(--panel);
+			}
+
+			.page canvas {
+				display: block;
+				width: 100%;
+				height: 100%;
+				background: #ffffff;
+			}
+
+			.nav-btn {
+				position: fixed;
+				top: 50%;
+				transform: translateY(-50%);
+				width: 42px;
+				height: 42px;
+				border-radius: 50%;
+				border: none;
+				cursor: pointer;
+				background: rgba(0, 0, 0, 0.58);
+				color: #fff;
+				font-size: 20px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 10;
+				transition: background 0.2s, transform 0.1s, opacity 0.2s;
+			}
+
+			.nav-btn:hover:not(:disabled) {
+				background: rgba(0, 0, 0, 0.78);
+			}
+
+			.nav-btn:active:not(:disabled) {
+				transform: translateY(-50%) scale(0.96);
+			}
+
+			.nav-btn:disabled {
+				opacity: 0.3;
+				cursor: default;
+			}
+
+			.nav-left {
+				left: 16px;
+			}
+
+			.nav-right {
+				right: 16px;
+			}
+
+			.loader {
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				z-index: 20;
+				background: rgba(255, 255, 255, 0.92);
+				border: 1px solid var(--line);
+				box-shadow: 0 14px 32px rgba(0, 0, 0, 0.1);
+				padding: 12px 14px;
+				border-radius: 12px;
+				font-size: 13px;
+				text-align: center;
+				max-width: min(420px, calc(100vw - 32px));
+			}
+
+			@media (max-width: 900px) {
+				.top-toolbar {
+					position: fixed;
+					bottom: 0;
+					left: 0;
+					width: 100%;
+					box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
+				}
+
+				.viewer-wrapper {
+					padding: 18px 12px 76px;
+				}
+
+				.viewer-inner {
+					padding: 4px;
+				}
+
+				.nav-left {
+					left: 10px;
+				}
+
+				.nav-right {
+					right: 10px;
+				}
+
+				.nav-btn {
+					width: 34px;
+					height: 34px;
+					font-size: 18px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="top-toolbar">
+			<div class="page-info-text">
+				Page <span id="pageCurrent">1</span> / <span id="pageTotal">0</span>
+			</div>
+			<div class="toolbar-right">
+				<button id="zoomOutBtn" class="btn" title="Zoom out">
+					<i class="fa-solid fa-magnifying-glass-minus"></i>
+				</button>
+				<span id="zoomLabel" class="zoom-label">100%</span>
+				<button id="zoomInBtn" class="btn" title="Zoom in">
+					<i class="fa-solid fa-magnifying-glass-plus"></i>
+				</button>
+				<button id="zoomResetBtn" class="btn" title="Reset zoom">
+					<i class="fa-solid fa-rotate-left"></i>
+				</button>
+			</div>
+		</div>
+
+		<div class="viewer-wrapper">
+			<button id="prevBtn" class="nav-btn nav-left" title="Previous page">
+				<i class="fa-solid fa-chevron-left"></i>
+			</button>
+
+			<div class="viewer-container" id="viewerContainer">
+				<div class="viewer-inner">
+					<div id="bookStage">
+						<div id="flipbook"></div>
+					</div>
+				</div>
+			</div>
+
+			<button id="nextBtn" class="nav-btn nav-right" title="Next page">
+				<i class="fa-solid fa-chevron-right"></i>
+			</button>
+		</div>
+
+		<div class="loader" id="loader">Loading PDF...</div>
+		<audio id="flipSound" src="page-flip.wav" preload="auto"></audio>
+
+		<script>
+			const pdfUrl = "./DesignCollection2024.pdf";
+
+			const viewerContainer = document.getElementById("viewerContainer");
+			const bookStage = document.getElementById("bookStage");
+			const flipbookEl = document.getElementById("flipbook");
+			const prevBtn = document.getElementById("prevBtn");
+			const nextBtn = document.getElementById("nextBtn");
+			const zoomInBtn = document.getElementById("zoomInBtn");
+			const zoomOutBtn = document.getElementById("zoomOutBtn");
+			const zoomResetBtn = document.getElementById("zoomResetBtn");
+			const zoomLabel = document.getElementById("zoomLabel");
+			const pageCurrent = document.getElementById("pageCurrent");
+			const pageTotal = document.getElementById("pageTotal");
+			const loader = document.getElementById("loader");
+			const flipSoundEl = document.getElementById("flipSound");
+
+			const DEFAULT_ZOOM = 1;
+			const ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.2, 1.35, 1.5];
+			let zoomLevel = DEFAULT_ZOOM;
+
+			let pdfDoc = null;
+			let pageFlip = null;
+			let currentPageIndex = 1;
+			let pageWidth = 0;
+			let pageHeight = 0;
+			let isBuilding = false;
+			let suppressFlipSound = true;
+			let flipSoundState = "idle";
+			let lastFlipSoundAt = 0;
+
+			const RAPID_FLIP_WINDOW_MS = 240;
+			const RAPID_FLIP_PLAYBACK_RATE = 1.18;
+			const NORMAL_FLIP_PLAYBACK_RATE = 1;
+
+			function isMobile() {
+				return window.innerWidth < 900;
+			}
+
+			function setZoom(value) {
+				zoomLevel = Math.max(
+					ZOOM_LEVELS[0],
+					Math.min(value, ZOOM_LEVELS.at(-1))
+				);
+				zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
+				bookStage.style.transform = `scale(${zoomLevel})`;
+			}
+
+			function playFlipSound() {
+				const now = performance.now();
+				const isRapidFlip = now - lastFlipSoundAt < RAPID_FLIP_WINDOW_MS;
+				lastFlipSoundAt = now;
+
+				if (flipSoundState !== "idle") {
+					flipSoundEl.pause();
+					flipSoundEl.currentTime = 0;
+				}
+
+				flipSoundState = isRapidFlip ? "interrupting" : "playing";
+				flipSoundEl.playbackRate = isRapidFlip
+					? RAPID_FLIP_PLAYBACK_RATE
+					: NORMAL_FLIP_PLAYBACK_RATE;
+
+				flipSoundEl.play().catch(() => {
+					flipSoundState = "idle";
+				});
+			}
+
+			function getPageDimensions(page) {
+				const viewport = page.getViewport({ scale: 1 });
+				const ratio = viewport.width / viewport.height;
+				const reservedHeight = isMobile() ? 92 : 122;
+				const reservedWidth = isMobile() ? 24 : 164;
+				const availableHeight = Math.max(
+					window.innerHeight - reservedHeight,
+					280
+				);
+				const availableWidth = Math.max(window.innerWidth - reservedWidth, 260);
+				const spreadWidth = isMobile() ? availableWidth : availableWidth / 2;
+
+				let height = availableHeight;
+				let width = height * ratio;
+
+				if (width > spreadWidth) {
+					width = spreadWidth;
+					height = width / ratio;
+				}
+
+				return {
+					width: Math.max(Math.floor(width), 220),
+					height: Math.max(Math.floor(height), 280),
+				};
+			}
+
+			async function renderPageCanvas(pageNumber, width, height) {
+				const page = await pdfDoc.getPage(pageNumber);
+				const sourceViewport = page.getViewport({ scale: 1 });
+				const canvas = document.createElement("canvas");
+				const ctx = canvas.getContext("2d");
+
+				const pixelRatio = window.devicePixelRatio || 1;
+				const renderScale = Math.max(
+					(width * pixelRatio) / sourceViewport.width,
+					(height * pixelRatio) / sourceViewport.height
+				);
+				const renderViewport = page.getViewport({ scale: renderScale });
+
+				canvas.width = renderViewport.width;
+				canvas.height = renderViewport.height;
+				canvas.style.width = `${width}px`;
+				canvas.style.height = `${height}px`;
+
+				await page.render({
+					canvasContext: ctx,
+					viewport: renderViewport,
+				}).promise;
+
+				return canvas;
+			}
+
+			function createPageElement(pageNumber) {
+				const pageEl = document.createElement("div");
+				pageEl.className = "page";
+				pageEl.dataset.pageNumber = String(pageNumber);
+
+				if (pageNumber === 1 || pageNumber === pdfDoc.numPages) {
+					pageEl.classList.add("page-cover");
+					pageEl.dataset.density = "hard";
+				}
+
+				return pageEl;
+			}
+
+			async function buildFlipbook() {
+				if (!pdfDoc || isBuilding) return;
+				isBuilding = true;
+				try {
+					loader.style.display = "block";
+					loader.textContent = "Preparing flipbook...";
+
+					if (pageFlip) {
+						pageFlip.destroy();
+						pageFlip = null;
+					}
+
+					flipbookEl.innerHTML = "";
+
+					const firstPage = await pdfDoc.getPage(1);
+					const size = getPageDimensions(firstPage);
+					pageWidth = size.width;
+					pageHeight = size.height;
+
+					for (
+						let pageNumber = 1;
+						pageNumber <= pdfDoc.numPages;
+						pageNumber += 1
+					) {
+						const pageEl = createPageElement(pageNumber);
+						const canvas = await renderPageCanvas(
+							pageNumber,
+							pageWidth,
+							pageHeight
+						);
+						pageEl.appendChild(canvas);
+						flipbookEl.appendChild(pageEl);
+						loader.textContent = `Building flipbook... ${pageNumber}/${pdfDoc.numPages}`;
+					}
+
+					pageFlip = new St.PageFlip(flipbookEl, {
+						width: pageWidth,
+						height: pageHeight,
+						size: "fixed",
+						showCover: true,
+						usePortrait: isMobile(),
+						drawShadow: true,
+						flippingTime: 900,
+						maxShadowOpacity: 0.38,
+						mobileScrollSupport: false,
+					});
+
+					pageFlip.loadFromHTML(flipbookEl.querySelectorAll(".page"));
+					currentPageIndex = Math.min(
+						Math.max(currentPageIndex, showCoverShouldOpenAsSpread() ? 1 : 0),
+						Math.max(pdfDoc.numPages - 1, 0)
+					);
+					pageFlip.turnToPage(currentPageIndex);
+					pageFlip.update();
+
+					pageFlip.on("flip", (event) => {
+						currentPageIndex = event.data;
+						pageTotal.textContent = String(pdfDoc.numPages);
+						pageCurrent.textContent = String(currentPageIndex + 1);
+						updateNavButtons();
+
+						if (!suppressFlipSound) {
+							playFlipSound();
+						}
+					});
+
+					pageFlip.on("changeOrientation", () => {
+						setTimeout(() => pageFlip && pageFlip.update(), 0);
+					});
+
+					pageTotal.textContent = String(pdfDoc.numPages);
+					pageCurrent.textContent = String(currentPageIndex + 1);
+					updateNavButtons();
+					setZoom(zoomLevel);
+
+					suppressFlipSound = true;
+					setTimeout(() => {
+						suppressFlipSound = false;
+					}, 250);
+
+					loader.style.display = "none";
+				} finally {
+					isBuilding = false;
+				}
+			}
+
+			function updateNavButtons() {
+				const hasPrev = currentPageIndex > 0;
+				const hasNext = pdfDoc && currentPageIndex < pdfDoc.numPages - 1;
+				prevBtn.disabled = !hasPrev;
+				nextBtn.disabled = !hasNext;
+			}
+
+			function showCoverShouldOpenAsSpread() {
+				return !isMobile();
+			}
+
+			function stepZoom(direction) {
+				if (direction > 0) {
+					const nextLevel = ZOOM_LEVELS.find(
+						(level) => level > zoomLevel + 0.001
+					);
+					setZoom(nextLevel || ZOOM_LEVELS.at(-1));
+					return;
+				}
+
+				const prevLevel = [...ZOOM_LEVELS]
+					.reverse()
+					.find((level) => level < zoomLevel - 0.001);
+				setZoom(prevLevel || ZOOM_LEVELS[0]);
+			}
+
+			prevBtn.addEventListener("click", () => {
+				if (!pageFlip || currentPageIndex <= 0) return;
+				pageFlip.flipPrev("top");
+			});
+
+			nextBtn.addEventListener("click", () => {
+				if (!pageFlip || currentPageIndex >= pdfDoc.numPages - 1) return;
+				pageFlip.flipNext("top");
+			});
+
+			zoomInBtn.addEventListener("click", () => stepZoom(1));
+			zoomOutBtn.addEventListener("click", () => stepZoom(-1));
+			zoomResetBtn.addEventListener("click", () => setZoom(DEFAULT_ZOOM));
+
+			let resizeTimer = null;
+			window.addEventListener("resize", () => {
+				if (!pdfDoc) return;
+				clearTimeout(resizeTimer);
+				resizeTimer = setTimeout(() => {
+					currentPageIndex = pageFlip
+						? pageFlip.getCurrentPageIndex()
+						: currentPageIndex;
+					buildFlipbook().catch(handleLoadError);
+				}, 180);
+			});
+
+			function handleLoadError(err) {
+				console.error(err);
+				loader.style.display = "block";
+
+				if (window.location.protocol === "file:") {
+					loader.textContent =
+						"PDF could not load from file://. Start a local server in this folder, then open http://localhost:8000.";
+					return;
+				}
+
+				loader.textContent = `Failed to load PDF: ${err.message}`;
+			}
+
+			async function init() {
+				flipSoundEl.addEventListener("ended", () => {
+					flipSoundState = "idle";
+					flipSoundEl.currentTime = 0;
+					flipSoundEl.playbackRate = NORMAL_FLIP_PLAYBACK_RATE;
+				});
+
+				flipSoundEl.addEventListener("pause", () => {
+					if (flipSoundEl.ended) return;
+					if (flipSoundEl.currentTime === 0) return;
+					if (flipSoundState === "interrupting") return;
+					flipSoundState = "idle";
+				});
+
+				if (window.location.protocol === "file:") {
+					loader.textContent =
+						"Open this flipbook through a local web server. Browsers block PDF.js from loading local file:// PDFs.";
+					return;
+				}
+
+				loader.style.display = "block";
+				loader.textContent = "Loading PDF...";
+
+				const task = pdfjsLib.getDocument(pdfUrl);
+				pdfDoc = await task.promise;
+				await buildFlipbook();
+			}
+
+			init().catch(handleLoadError);
+		</script>
+	</body>
+</html>
