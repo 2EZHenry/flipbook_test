@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>LAPP Catalogue Viewer</title>
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+		/>
+
+		<!-- Preconnect to CDNs for faster resource loading -->
+		<link rel="preconnect" href="https://code.jquery.com" />
+		<link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+
+		<!-- Temporary hack to prevent AMD/RequireJS (Magento) from capturing the libraries -->
+		<script>
+			var _oldDefine = window.define;
+			window.define = null;
+		</script>
+
+		<!-- jQuery (required for turn.js) -->
+		<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+		<!-- turn.js -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+
+		<!-- PDF.js -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+		<script>
+			pdfjsLib.GlobalWorkerOptions.workerSrc =
+				"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+		</script>
+
+		<!-- Restore define -->
+		<script>
+			if (_oldDefine) window.define = _oldDefine;
+		</script>
+
+		<!-- FontAwesome - load asynchronously to prevent render blocking -->
+		<link
+			rel="stylesheet"
+			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+			media="print"
+			onload="this.media='all'"
+		/>
+		<noscript>
+			<link
+				rel="stylesheet"
+				href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+			/>
+		</noscript>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			#flipbook-app {
+				position: relative;
+				width: 100%;
+				height: 100%;
+				min-height: 920px; /* Prevent collapse if parent has no height */
+				overflow: hidden;
+				background: #ffffff;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+					Arial, sans-serif;
+				display: flex;
+				flex-direction: column;
+			}
+
+			@media (max-width: 768px) {
+				#flipbook-app {
+					min-height: 600px;
+				}
+			}
+			@media (max-width: 590px) {
+				#flipbook-app {
+					min-height: 500px;
+				}
+			}
+
+			/* Top bar: page info + zoom */
+			.top-toolbar {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 12px;
+				/* color: white; */
+				/* background: #ff7100; */
+				box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+				font-size: 16px;
+				/* z-index: 5; */
+			}
+
+			.page-info-text {
+				font-weight: 500;
+				opacity: 0;
+				transition: opacity 0.3s;
+			}
+
+			.toolbar-right {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+			.toolbar-right i {
+				font-size: 16px;
+				color: #5d5d5d;
+			}
+
+			.btn {
+				cursor: pointer;
+				border: 1px solid #ccc;
+				background: #f7f7f7;
+				border-radius: 20px;
+				padding: 4px 10px;
+				font-size: 13px;
+				min-width: 30px;
+				text-align: center;
+				user-select: none;
+				transition: background 0.15s, transform 0.1s;
+			}
+			.btn:hover {
+				background: #e2e2e2;
+			}
+			.btn:active {
+				transform: scale(0.97);
+			}
+
+			.zoom-label {
+				min-width: 48px;
+				text-align: center;
+			}
+
+			/* Main viewer area */
+			.viewer-wrapper {
+				flex: 1;
+				position: relative;
+				overflow: hidden;
+				display: flex;
+				justify-content: center;
+				background: #ffffff;
+				padding-top: 15px;
+				box-shadow: 0px 5px 10px 0.5px #cccccc;
+			}
+
+			.viewer-container {
+				width: 100%;
+				/* height: 100%; */
+				overflow: hidden; /* Hide scrollbars by default (when not zoomed) */
+				touch-action: pan-x pan-y;
+				cursor: default;
+				position: relative;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+			}
+			.viewer-container.zoomed {
+				cursor: grab;
+				display: block; /* Allow scrolling when zoomed */
+			}
+			.viewer-container.dragging {
+				cursor: grabbing;
+			}
+
+			/* Zoom Wrapper: scales the flipbook */
+			#zoomWrapper {
+				transform-origin: 0 0;
+				transition: transform 0.1s ease-out;
+				padding: 0;
+				overflow: visible; /* Allow 3D transforms to extend slightly without clipping immediately */
+			}
+
+			/* Flipbook styles */
+			#flipbook {
+				width: 1000px;
+				height: 600px;
+				margin: 0 auto;
+				opacity: 0;
+				visibility: hidden;
+				transition: opacity 0.5s ease-in;
+			}
+
+			#flipbook .page {
+				background: #fff;
+				box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+			}
+
+			#flipbook canvas {
+				width: 100%;
+				height: 100%;
+				display: block;
+			}
+
+			/* Left / right nav buttons (absolute position relative to app) */
+			.nav-btn {
+				position: absolute;
+				top: 50%;
+				transform: translateY(-50%);
+				width: 40px;
+				height: 40px;
+				border-radius: 50%;
+				border: none;
+				cursor: pointer;
+				background: rgba(0, 0, 0, 0.6);
+				color: #fff;
+				font-size: 20px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 10000;
+				transition: background 0.2s, transform 0.1s, opacity 0.2s;
+			}
+			.nav-btn:hover:not(:disabled) {
+				background: rgba(0, 0, 0, 0.8);
+			}
+			.nav-btn:active:not(:disabled) {
+				transform: translateY(-50%) scale(0.96);
+			}
+			.nav-btn:disabled {
+				opacity: 0.3;
+				cursor: default;
+			}
+
+			.nav-left {
+				left: 16px;
+			}
+			.nav-right {
+				right: 16px;
+			}
+
+			/* Hide nav buttons while loading */
+			.viewer-wrapper.loading .nav-btn {
+				opacity: 0;
+				pointer-events: none;
+			}
+
+			.loader {
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				z-index: 20;
+				pointer-events: none;
+				width: 50px;
+				height: 50px;
+				border: 5px solid #f3f3f3;
+				border-top: 5px solid #ff7100;
+				border-radius: 50%;
+				animation: spin 1s linear infinite;
+			}
+
+			.loader-small {
+				width: 28px;
+				height: 28px;
+				margin: 0 auto;
+				border: 3px solid #ececec;
+				border-top: 3px solid #ff7100;
+				border-radius: 50%;
+				animation: spin 0.9s linear infinite;
+			}
+
+			@keyframes spin {
+				0% {
+					transform: translate(-50%, -50%) rotate(0deg);
+				}
+				100% {
+					transform: translate(-50%, -50%) rotate(360deg);
+				}
+			}
+
+			/* Mobile styles applied via class instead of media query */
+			/* #flipbook-app.is-mobile .top-toolbar {
+				position: absolute;
+				bottom: 0;
+				left: 0;
+				width: 100%;
+				box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.12);
+				padding-bottom: calc(
+					12px + env(safe-area-inset-bottom)
+				); /* Safe area for iPhone X+ 
+			} */
+			#flipbook-app.is-mobile .nav-left {
+				left: 10px;
+			}
+			#flipbook-app.is-mobile .nav-right {
+				right: 10px;
+			}
+			#flipbook-app.is-mobile .nav-btn {
+				width: 34px;
+				height: 34px;
+				font-size: 18px;
+			}
+
+			/* Loader is already centered, no need to move it for mobile */
+		</style>
+	</head>
+	<body>
+		<div id="flipbook-app">
+			<!-- Top toolbar -->
+			<div class="top-toolbar">
+				<div class="page-info-text">
+					Page <span id="pageCurrent">1</span> / <span id="pageTotal">0</span>
+				</div>
+				<div class="toolbar-right">
+					<button id="zoomOutBtn" class="btn zoom-btn">
+						<i class="fa-solid fa-magnifying-glass-minus"></i>
+					</button>
+					<span id="zoomLabel" class="zoom-label">100%</span>
+					<button id="zoomInBtn" class="btn zoom-btn">
+						<i class="fa-solid fa-magnifying-glass-plus"></i>
+					</button>
+					<button id="zoomResetBtn" class="btn zoom-btn" title="Reset to 100%">
+						<i class="fa-solid fa-rotate-left"></i>
+					</button>
+				</div>
+			</div>
+
+			<!-- Main viewer -->
+			<div class="viewer-wrapper loading">
+				<button id="prevBtn" class="nav-btn nav-left">
+					<i class="fa-solid fa-chevron-left"></i>
+				</button>
+
+				<div class="viewer-container" id="viewerContainer">
+					<div id="zoomWrapper">
+						<div id="flipbook"></div>
+					</div>
+				</div>
+
+				<button id="nextBtn" class="nav-btn nav-right">
+					<i class="fa-solid fa-chevron-right"></i>
+				</button>
+			</div>
+
+			<div class="loader" id="loader"></div>
+
+			<!-- Flip sound -->
+			<audio id="flipSound" src="page-flip.wav" preload="none"></audio>
+		</div>
+
+		<script>
+			// Your PDF file
+			const pdfUrl = "./DesignCollection2024.pdf";
+			// const pdfUrl =
+			// 	"https://e.lapp.com/apac/amfile/file/download/file/LAPP25_LCC_Catalogue_full_1-30.pdf";
+
+			const appContainer = document.getElementById("flipbook-app");
+			const viewerContainer = document.getElementById("viewerContainer");
+			const zoomWrapper = document.getElementById("zoomWrapper");
+			const flipbookEl = document.getElementById("flipbook");
+
+			const prevBtn = document.getElementById("prevBtn");
+			const nextBtn = document.getElementById("nextBtn");
+			const zoomInBtn = document.getElementById("zoomInBtn");
+			const zoomOutBtn = document.getElementById("zoomOutBtn");
+			const zoomResetBtn = document.getElementById("zoomResetBtn");
+			const zoomLabel = document.getElementById("zoomLabel");
+			const pageCurrent = document.getElementById("pageCurrent");
+			const pageTotal = document.getElementById("pageTotal");
+			const loader = document.getElementById("loader");
+			const flipSoundEl = document.getElementById("flipSound");
+
+			let pdfDoc = null;
+			let turnReady = false;
+			let pdfAspectRatio = null;
+
+			// Canvas cache to prevent re-rendering
+			const canvasCache = {};
+
+			// Zoom state
+			let zoomLevel = 1;
+			const ZOOM_LEVELS = [
+				1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0,
+			];
+			const ZOOM_MIN = ZOOM_LEVELS[0];
+			const ZOOM_MAX = ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
+
+			// Interaction state
+			let isDragging = false;
+			let startX = 0;
+			let startY = 0;
+			let startScrollLeft = 0;
+			let startScrollTop = 0;
+			let initialPinchDistance = null;
+			let startZoomLevel = 1;
+
+			function isMobile() {
+				return appContainer.clientWidth < 900;
+			}
+
+			function setZoom(value) {
+				zoomLevel = Math.max(ZOOM_MIN, Math.min(value, ZOOM_MAX));
+				zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
+
+				if (zoomLevel <= 1) {
+					// Center when zoomed out or at 100%
+					zoomWrapper.style.transformOrigin = "center center";
+					viewerContainer.classList.remove("zoomed");
+					viewerContainer.style.overflow = "hidden"; // Prevent scrollbars during flip
+				} else {
+					// Top-left when zoomed in to allow panning
+					zoomWrapper.style.transformOrigin = "0 0";
+					viewerContainer.classList.add("zoomed");
+					viewerContainer.style.overflow = "auto"; // Enable scrollbars for panning
+				}
+
+				// Apply zoom via CSS transform
+				zoomWrapper.style.transform = `scale(${zoomLevel})`;
+
+				if (zoomLevel <= 1) {
+					// Reset scroll when zooming out to 100%
+					viewerContainer.scrollLeft =
+						(viewerContainer.scrollWidth - viewerContainer.clientWidth) / 2;
+				}
+			}
+
+			function updatePageInfo(overridePage) {
+				if (!turnReady) return;
+				const current = overridePage || $("#flipbook").turn("page");
+				const total = $("#flipbook").turn("pages");
+				pageCurrent.textContent = current;
+				pageTotal.textContent = total;
+
+				prevBtn.disabled = current === 1;
+				nextBtn.disabled = current === total;
+			}
+
+			function updateLayout() {
+				if (!turnReady) return;
+
+				// Resize flipbook based on container
+				const w = appContainer.clientWidth;
+				const h = appContainer.clientHeight;
+				const mobile = isMobile();
+
+				// Update container class for CSS styling
+				if (mobile) {
+					appContainer.classList.add("is-mobile");
+				} else {
+					appContainer.classList.remove("is-mobile");
+				}
+
+				// Check and update display mode if needed
+				const currentDisplay = $("#flipbook").turn("display");
+				const targetDisplay = mobile ? "single" : "double";
+
+				if (currentDisplay !== targetDisplay) {
+					$("#flipbook").turn("display", targetDisplay);
+				}
+
+				// Calculate target aspect ratio based on PDF page ratio
+				// If double view, ratio is width*2 / height
+				// If single view, ratio is width / height
+				// Default to 1000/600 if pdfAspectRatio not yet set (should be set by now)
+				const singlePageRatio = pdfAspectRatio || 1000 / 600;
+				const targetRatio = mobile ? singlePageRatio : singlePageRatio * 2;
+
+				if (mobile) {
+					const mobileW = w - 20;
+					// Subtract toolbar height (approx 60px) + safe area estimate (20px) + padding
+					const mobileH = h - 120;
+
+					// Maintain aspect ratio within mobile bounds
+					let newW = mobileW;
+					let newH = newW / targetRatio;
+
+					if (newH > mobileH) {
+						newH = mobileH;
+						newW = newH * targetRatio;
+					}
+
+					$("#flipbook").turn("size", newW, newH);
+				} else {
+					// Desktop size: fit within screen with padding
+					// Increased padding to prevent scrollbars appearing during page flip animation
+					const paddingX = 150;
+					const paddingY = 120;
+					const availableW = w - paddingX;
+					const availableH = h - paddingY;
+
+					let newW = availableW;
+					let newH = newW / targetRatio;
+
+					if (newH > availableH) {
+						newH = availableH;
+						newW = newH * targetRatio;
+					}
+
+					$("#flipbook").turn("size", newW, newH);
+				}
+
+				// Center the zoom wrapper
+				if (zoomLevel === 1) {
+					viewerContainer.classList.remove("zoomed");
+				}
+			}
+
+			function loadPage(pageNum) {
+				// Find the existing page element
+				const pageElement = document.querySelector(
+					`.page[data-page="${pageNum}"]`
+				);
+
+				if (!pageElement) return;
+				if (pageElement.classList.contains("loaded")) return; // Already loaded
+
+				pageElement.classList.add("loaded"); // Mark as loaded immediately to prevent double fetch
+
+				// Check cache first
+				if (canvasCache[pageNum]) {
+					pageElement.innerHTML = ""; // Clear loader
+					pageElement.appendChild(canvasCache[pageNum].cloneNode(true));
+					return;
+				}
+
+				// Fetch and render
+				pdfDoc.getPage(pageNum).then((page) => {
+					// Scale 2 for good quality with better performance (was 3)
+					const viewport = page.getViewport({ scale: 2 });
+					const canvas = document.createElement("canvas");
+					canvas.width = viewport.width;
+					canvas.height = viewport.height;
+
+					// Force canvas to fit container via CSS
+					canvas.style.width = "100%";
+					canvas.style.height = "100%";
+
+					pageElement.innerHTML = ""; // Clear loader
+					pageElement.appendChild(canvas);
+
+					page
+						.render({
+							canvasContext: canvas.getContext("2d"),
+							viewport: viewport,
+						})
+						.promise.then(() => {
+							// Cache the rendered canvas
+							canvasCache[pageNum] = canvas.cloneNode(true);
+						});
+				});
+			}
+
+			function updateVisiblePages(pageNum) {
+				if (!turnReady) return;
+
+				// Get the range of pages that should be in the DOM/visible
+				const range = $("#flipbook").turn("range", pageNum);
+
+				// Load visible pages immediately
+				for (let i = range[0]; i <= range[1]; i++) {
+					loadPage(i);
+				}
+
+				// Aggressively preload adjacent pages (3 pages ahead and behind)
+				const totalPages = pdfDoc.numPages;
+				const preloadCount = 3;
+
+				// Preload pages after current range
+				for (
+					let i = range[1] + 1;
+					i <= Math.min(range[1] + preloadCount, totalPages);
+					i++
+				) {
+					setTimeout(() => loadPage(i), 100 * (i - range[1])); // Stagger the loads
+				}
+
+				// Preload pages before current range
+				for (
+					let i = range[0] - 1;
+					i >= Math.max(range[0] - preloadCount, 1);
+					i--
+				) {
+					setTimeout(() => loadPage(i), 100 * (range[0] - i)); // Stagger the loads
+				}
+			}
+
+			// Load PDF
+			pdfjsLib
+				.getDocument(pdfUrl)
+				.promise.then((pdf) => {
+					pdfDoc = pdf;
+					pageTotal.textContent = pdfDoc.numPages;
+
+					// Get the first page to determine aspect ratio
+					return pdf.getPage(1).then((page) => {
+						const viewport = page.getViewport({ scale: 1 });
+						pdfAspectRatio = viewport.width / viewport.height;
+						return pdf;
+					});
+				})
+				.then(() => {
+					// Pre-create empty page elements
+					const fragment = document.createDocumentFragment();
+					for (let i = 1; i <= pdfDoc.numPages; i++) {
+						const div = document.createElement("div");
+						div.className = "page";
+						div.setAttribute("data-page", i);
+						div.innerHTML = '<div class="loader-small"></div>';
+						fragment.appendChild(div);
+					}
+					flipbookEl.appendChild(fragment);
+
+					loader.style.display = "none";
+
+					// Initialize turn.js
+					$("#flipbook").turn({
+						autoCenter: false,
+						elevation: 0,
+						gradients: true,
+						acceleration: true,
+						duration: 1000,
+						display: isMobile() ? "single" : "double",
+					});
+
+					turnReady = true;
+
+					// Initial load of visible pages
+					updateVisiblePages(1);
+
+					updatePageInfo();
+					updateLayout();
+
+					// Reveal flipbook
+					flipbookEl.style.visibility = "visible";
+					flipbookEl.style.opacity = "1";
+					document.querySelector(".viewer-wrapper").classList.remove("loading");
+
+					// Show page info
+					document.querySelector(".page-info-text").style.opacity = "1";
+
+					// Bind events
+					$("#flipbook").bind("turning", (e, page, view) => {
+						flipSoundEl.currentTime = 0;
+						flipSoundEl.play().catch(() => {});
+						updatePageInfo(page);
+						updateVisiblePages(page);
+					});
+
+					$("#flipbook").bind("turned", (e, page, view) => {
+						updatePageInfo();
+					});
+
+					// Initial resize check using ResizeObserver
+					const resizeObserver = new ResizeObserver(() => {
+						updateLayout();
+					});
+					resizeObserver.observe(appContainer);
+				})
+				.catch((err) => {
+					console.error(err);
+					loader.textContent = "Error: " + err.message;
+				});
+
+			// Navigation
+			prevBtn.addEventListener("click", () => {
+				if (turnReady) $("#flipbook").turn("previous");
+			});
+
+			nextBtn.addEventListener("click", () => {
+				if (turnReady) $("#flipbook").turn("next");
+			});
+
+			// Keyboard Navigation
+			window.addEventListener("keydown", (e) => {
+				if (!turnReady) return;
+				if (e.key === "ArrowLeft") {
+					$("#flipbook").turn("previous");
+				} else if (e.key === "ArrowRight") {
+					$("#flipbook").turn("next");
+				}
+			});
+
+			// Zoom Controls
+			zoomInBtn.addEventListener("click", () => {
+				const nextLevel = ZOOM_LEVELS.find(
+					(level) => level > zoomLevel + 0.001
+				);
+				if (nextLevel) setZoom(nextLevel);
+				else setZoom(ZOOM_MAX);
+			});
+
+			zoomOutBtn.addEventListener("click", () => {
+				const prevLevel = [...ZOOM_LEVELS]
+					.reverse()
+					.find((level) => level < zoomLevel - 0.001);
+				if (prevLevel) setZoom(prevLevel);
+				else setZoom(ZOOM_MIN);
+			});
+
+			zoomResetBtn.addEventListener("click", () => {
+				setZoom(1);
+				updateLayout(); // Re-center
+			});
+
+			// Mouse Wheel Zoom
+			viewerContainer.addEventListener(
+				"wheel",
+				(e) => {
+					if (e.ctrlKey || !isMobile()) {
+						// Allow on desktop always, or ctrl+wheel
+						e.preventDefault();
+
+						const rect = viewerContainer.getBoundingClientRect();
+						const mouseX = e.clientX - rect.left;
+						const mouseY = e.clientY - rect.top;
+
+						// Determine direction
+						const delta = -Math.sign(e.deltaY);
+						const step = 0.1;
+						let newZoom = zoomLevel + delta * step;
+						newZoom = Math.max(ZOOM_MIN, Math.min(newZoom, ZOOM_MAX));
+
+						if (newZoom !== zoomLevel) {
+							const scale = newZoom / zoomLevel;
+							const oldScrollLeft = viewerContainer.scrollLeft;
+							const oldScrollTop = viewerContainer.scrollTop;
+
+							// Calculate new scroll position to keep mouse point stable
+							// Point in content space: P = (Mouse + Scroll) / OldZoom
+							// New Scroll = P * NewZoom - Mouse
+							// New Scroll = (Mouse + Scroll) * (NewZoom/OldZoom) - Mouse
+
+							const newScrollLeft = (mouseX + oldScrollLeft) * scale - mouseX;
+							const newScrollTop = (mouseY + oldScrollTop) * scale - mouseY;
+
+							setZoom(newZoom);
+
+							viewerContainer.scrollLeft = newScrollLeft;
+							viewerContainer.scrollTop = newScrollTop;
+						}
+					}
+				},
+				{ passive: false }
+			);
+
+			// ---- Touch / Mouse Handling for Panning & Swiping ----
+
+			function getPinchDistance(touches) {
+				const dx = touches[0].clientX - touches[1].clientX;
+				const dy = touches[0].clientY - touches[1].clientY;
+				return Math.sqrt(dx * dx + dy * dy);
+			}
+
+			function getPinchCenter(touches) {
+				const x = (touches[0].clientX + touches[1].clientX) / 2;
+				const y = (touches[0].clientY + touches[1].clientY) / 2;
+				return { x, y };
+			}
+
+			// Mouse Down
+			let isMouseDownOnViewer = false;
+			viewerContainer.addEventListener("mousedown", (e) => {
+				isMouseDownOnViewer = true;
+				startX = e.clientX;
+				startY = e.clientY;
+				startScrollLeft = viewerContainer.scrollLeft;
+				startScrollTop = viewerContainer.scrollTop;
+
+				if (zoomLevel > 1) {
+					isDragging = true;
+					viewerContainer.classList.add("dragging");
+				}
+			});
+
+			// Mouse Move
+			window.addEventListener("mousemove", (e) => {
+				if (!isDragging) return;
+				const dx = e.clientX - startX;
+				const dy = e.clientY - startY;
+				viewerContainer.scrollLeft = startScrollLeft - dx;
+				viewerContainer.scrollTop = startScrollTop - dy;
+			});
+
+			// Mouse Up
+			window.addEventListener("mouseup", (e) => {
+				if (isDragging) {
+					isDragging = false;
+					viewerContainer.classList.remove("dragging");
+				} else if (zoomLevel <= 1 && isMouseDownOnViewer) {
+					// Swipe detection for page turn (if not dragging)
+					const dx = e.clientX - startX;
+					if (Math.abs(dx) > 50) {
+						if (dx > 0) $("#flipbook").turn("previous");
+						else $("#flipbook").turn("next");
+					}
+				}
+				isMouseDownOnViewer = false;
+			});
+
+			// Touch Start
+			viewerContainer.addEventListener("touchstart", (e) => {
+				if (e.touches.length === 2) {
+					// Pinch start
+					isDragging = false;
+					initialPinchDistance = getPinchDistance(e.touches);
+					startZoomLevel = zoomLevel;
+				} else if (e.touches.length === 1) {
+					const t = e.touches[0];
+					startX = t.clientX;
+					startY = t.clientY;
+					startScrollLeft = viewerContainer.scrollLeft;
+					startScrollTop = viewerContainer.scrollTop;
+
+					if (zoomLevel > 1) {
+						isDragging = true;
+						viewerContainer.classList.add("dragging");
+					}
+				}
+			});
+
+			// Touch Move
+			viewerContainer.addEventListener(
+				"touchmove",
+				(e) => {
+					if (e.touches.length === 2 && initialPinchDistance) {
+						// Pinch Zoom
+						e.preventDefault();
+						const currentDistance = getPinchDistance(e.touches);
+						const scale = currentDistance / initialPinchDistance;
+						let newZoom = startZoomLevel * scale;
+
+						// Clamp newZoom
+						newZoom = Math.max(ZOOM_MIN, Math.min(newZoom, ZOOM_MAX));
+
+						if (newZoom !== zoomLevel) {
+							const center = getPinchCenter(e.touches);
+							const rect = viewerContainer.getBoundingClientRect();
+							const pinchX = center.x - rect.left;
+							const pinchY = center.y - rect.top;
+
+							// Calculate relative scale for this step
+							const relativeScale = newZoom / zoomLevel;
+
+							const oldScrollLeft = viewerContainer.scrollLeft;
+							const oldScrollTop = viewerContainer.scrollTop;
+
+							// Calculate new scroll position
+							const newScrollLeft =
+								(pinchX + oldScrollLeft) * relativeScale - pinchX;
+							const newScrollTop =
+								(pinchY + oldScrollTop) * relativeScale - pinchY;
+
+							setZoom(newZoom);
+
+							viewerContainer.scrollLeft = newScrollLeft;
+							viewerContainer.scrollTop = newScrollTop;
+						}
+					} else if (e.touches.length === 1 && isDragging) {
+						// Pan
+						e.preventDefault();
+						const t = e.touches[0];
+						const dx = t.clientX - startX;
+						const dy = t.clientY - startY;
+						viewerContainer.scrollLeft = startScrollLeft - dx;
+						viewerContainer.scrollTop = startScrollTop - dy;
+					}
+				},
+				{ passive: false }
+			);
+
+			// Touch End
+			viewerContainer.addEventListener("touchend", (e) => {
+				if (e.touches.length < 2) initialPinchDistance = null;
+
+				if (e.touches.length === 0) {
+					if (isDragging) {
+						isDragging = false;
+						viewerContainer.classList.remove("dragging");
+					} else if (zoomLevel <= 1) {
+						// Swipe detection
+						const t = e.changedTouches[0];
+						const dx = t.clientX - startX;
+						if (Math.abs(dx) > 50) {
+							if (dx > 0) $("#flipbook").turn("previous");
+							else $("#flipbook").turn("next");
+						}
+					}
+				}
+			});
+		</script>
+	</body>
+</html>
