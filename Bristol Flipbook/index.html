@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<title>LAPP Catalogue Viewer</title>
+		<title>Bristol Catalogue Viewer</title>
 		<meta
 			name="viewport"
 			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
@@ -68,6 +68,11 @@
 				flex-direction: column;
 			}
 
+			@media (max-width: 1140px) {
+				#flipbook-app {
+				}
+			}
+
 			@media (max-width: 768px) {
 				#flipbook-app {
 					min-height: 600px;
@@ -76,6 +81,7 @@
 			@media (max-width: 590px) {
 				#flipbook-app {
 					min-height: 500px;
+					height: calc(100vh - 20px);
 				}
 			}
 
@@ -140,13 +146,11 @@
 				display: flex;
 				justify-content: center;
 				background: #ffffff;
-				padding-top: 15px;
 				box-shadow: 0px 5px 10px 0.5px #cccccc;
 			}
 
 			.viewer-container {
 				width: 100%;
-				/* height: 100%; */
 				overflow: hidden; /* Hide scrollbars by default (when not zoomed) */
 				touch-action: pan-x pan-y;
 				cursor: default;
